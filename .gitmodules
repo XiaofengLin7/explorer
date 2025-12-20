@@ -1,0 +1,6 @@
+[submodule "third_party/rllm"]
+	path = third_party/rllm
+	url = https://github.com/rllm-org/rllm.git
+[submodule "third_party/gem"]
+	path = third_party/gem
+	url = https://github.com/axon-rl/gem.git
