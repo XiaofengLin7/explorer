@@ -7,12 +7,14 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
 export VLLM_USE_V1=1
 
+ENV_ID=game:Minesweeper-v0-easy
 python scripts/train_gem_single.py \
     data.train_batch_size=32 \
     data.val_batch_size=128 \
     data.max_prompt_length=2048 \
-    data.max_response_length=1024 \
-    +rllm.env.env_args.env_kwargs.max_turns=7 \
+    data.max_response_length=8192 \
+    +rllm.env.env_args.env_id=$ENV_ID \
+    +rllm.env.env_args.env_kwargs.max_turns=25 \
     actor_rollout_ref.model.path=Qwen/Qwen3-4B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
@@ -54,7 +56,7 @@ python scripts/train_gem_single.py \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='rllm-agent' \
-    trainer.experiment_name='gem-single' \
+    trainer.experiment_name='gem-minesweeper-easy' \
     trainer.val_before_train=False \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \

@@ -22,7 +22,8 @@ from rllm.data import DatasetRegistry  # type: ignore
 @hydra.main(config_path="pkg://rllm.trainer.config", config_name="agent_ppo_trainer", version_base=None)
 def main(cfg):  # type: ignore
     # Register and load GEM task datasets (train/val).
-    prepare_gem_data()
+    env_id = cfg.rllm.env.env_args.get("env_id", "game:GuessTheNumber-v0-hard")
+    prepare_gem_data(env_id=env_id)
     train_dataset = DatasetRegistry.load_dataset("gem_tasks", "train")
     val_dataset = DatasetRegistry.load_dataset("gem_tasks", "test")
 

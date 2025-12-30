@@ -47,7 +47,7 @@ class GEMEnvAdapter(BaseEnv):
             info: Auxiliary information from GEM.
         """
         observation, info = self._env.reset()
-        return observation, info
+        return info.get("prefix", "") + observation + info.get("suffix", ""), info
 
     def step(self, action: Any) -> tuple[Any, float, bool, dict]:
         """Execute one step in the GEM environment.
@@ -65,7 +65,7 @@ class GEMEnvAdapter(BaseEnv):
         raw_action = action.action if isinstance(action, Action) else action
         observation, reward, terminated, truncated, info = self._env.step(raw_action)
         done = bool(terminated or truncated)
-        return observation, float(reward), done, info
+        return info.get("prefix", "") + observation + info.get("suffix", ""), float(reward), done, info
 
     def close(self) -> None:
         """Close the underlying GEM environment."""
