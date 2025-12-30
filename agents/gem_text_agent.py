@@ -65,22 +65,28 @@ class GEMTextAgent(BaseAgent):
             last_step.info.update(info or {})
 
     def update_from_model(self, response: str, **kwargs) -> Action:
-        """Parse model response, append to history, and create a new Step."""
+        """Parse model response, append to history, and create a new Step.
+
+        The GEM environments expect boxed guesses (``\\boxed{42}``), so we
+        re-wrap the extracted value before forwarding it to the env.
+        """
         parsed_action = extract_last_boxed(response)
+        boxed_action = f"\\boxed{{{parsed_action}}}"
         self._messages.append({"role": "assistant", "content": response})
 
         step = Step(
             chat_completions=copy.deepcopy(self._messages),
             observation=self._messages[-2]["content"] if len(self._messages) >= 2 else None,
-            action=Action(action=parsed_action),
+            action=Action(action=boxed_action),
             model_response=response,
             info={},
         )
         self._trajectory.steps.append(step)
-        return Action(action=parsed_action)
+        return Action(action=boxed_action)
 
     def get_current_state(self) -> Step:
         if not self._trajectory.steps:
             return Step(chat_completions=copy.deepcopy(self._messages))
         return self._trajectory.steps[-1]
+
 
