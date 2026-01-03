@@ -53,6 +53,21 @@ def main(cfg):  # type: ignore
     agent_args = dict(agent_args or {})
     agent_args.setdefault("system_prompt", _default_multi_episode_prompt())
 
+    step_ref = {"step": None}
+
+    # Monkeypatch AgentWorkflowEngine.set_training_step to capture global_step without editing vendor files.
+    try:
+        from rllm.engine.agent_workflow_engine import AgentWorkflowEngine  # type: ignore
+
+        _orig_set_training_step = AgentWorkflowEngine.set_training_step
+
+        def _patched_set_training_step(self, step: int, mode: str = "train", epoch: int = 0):
+            step_ref["step"] = step
+            return _orig_set_training_step(self, step=step, mode=mode, epoch=epoch)
+
+        AgentWorkflowEngine.set_training_step = _patched_set_training_step  # type: ignore
+    except Exception:
+        pass
     workflow_args = {
         "agent_cls": GEMTextAgent,
         "env_cls": GEMEnvAdapter,
@@ -62,6 +77,9 @@ def main(cfg):  # type: ignore
         "total_step_cap": env_args.get("total_step_cap"),
         "min_episodes": 3,
         "episode_header": "New episode starts; reuse prior knowledge.",
+        "training_step_getter": lambda: step_ref.get("step"),
+        "step_ref": step_ref,
+        "default_local_dir": cfg.trainer.default_local_dir,
     }
 
     trainer = AgentTrainer(

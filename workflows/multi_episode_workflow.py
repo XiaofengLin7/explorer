@@ -17,6 +17,20 @@ from rllm.engine.rollout.rollout_engine import ModelOutput
 from rllm.workflows.timing_mixin import TimingTrackingMixin
 from rllm.workflows.workflow import TerminationEvent, TerminationReason, Workflow
 
+# Capture global training step from AgentWorkflowEngine without modifying vendor files.
+try:
+    from rllm.engine.agent_workflow_engine import AgentWorkflowEngine  # type: ignore
+
+    _orig_set_training_step = AgentWorkflowEngine.set_training_step
+
+    def _patched_set_training_step(self, step: int, mode: str = "train", epoch: int = 0):
+        MultiEpisodeWorkflow._global_step = step  # type: ignore[attr-defined]
+        return _orig_set_training_step(self, step=step, mode=mode, epoch=epoch)
+
+    AgentWorkflowEngine.set_training_step = _patched_set_training_step  # type: ignore
+except Exception:
+    pass
+
 
 class MultiEpisodeWorkflow(TimingTrackingMixin, Workflow):
     """Run multiple episodes for a single task under a global step cap."""
@@ -31,6 +45,9 @@ class MultiEpisodeWorkflow(TimingTrackingMixin, Workflow):
         min_episodes: int = 3,
         success_reward: float = 1.0,
         episode_header: str = "New episode begins.",
+        training_step_getter=None,
+        step_ref: dict | None = None,
+        default_local_dir: str | None = None,
         **kwargs: Any,
     ):
         """
@@ -59,21 +76,30 @@ class MultiEpisodeWorkflow(TimingTrackingMixin, Workflow):
         self.agent = agent_cls(**agent_args)
 
         # Allow both wrapped env_kwargs and direct kwargs for flexibility in tests.
-        env_init_args = dict(env_args)
-        nested_env_kwargs = env_init_args.pop("env_kwargs", None)
+        env_kwargs = env_args.get("env_kwargs", {}) if isinstance(env_args, dict) else {}
+        env_init_args = {
+            k: v
+            for k, v in env_args.items()
+            if k not in {"env_kwargs", "total_step_cap"}
+        } if isinstance(env_args, dict) else {}
+        # Prefer passing env_kwargs explicitly; fall back gracefully.
         try:
-            self.env = env_cls(**env_init_args)
+            self.env = env_cls(env_kwargs=env_kwargs, **env_init_args)
         except TypeError:
-            if nested_env_kwargs is not None:
-                self.env = env_cls(**nested_env_kwargs)
-            else:
-                raise
+            try:
+                self.env = env_cls(**env_init_args)
+            except TypeError:
+                self.env = env_cls(**env_kwargs)
 
         self.success_reward = float(success_reward)
         self.min_episodes = max(1, int(min_episodes))
         self.episode_header = episode_header
         self._configured_step_cap = total_step_cap
         self._episode_turn_cap = self._infer_episode_turn_cap(env_args)
+        # Optional logging hooks
+        self.training_step_getter = training_step_getter
+        self.step_ref = step_ref or {}
+        self.default_local_dir = default_local_dir
 
         self._episode_successes: List[bool] = []
         self._total_steps: int = 0
@@ -223,11 +249,21 @@ class MultiEpisodeWorkflow(TimingTrackingMixin, Workflow):
 
     def _reset_env(self) -> tuple[Any, dict]:
         """Reset the environment with a fixed seed when available."""
+        seed = None
         try:
-            return self.env.reset()
+            seed = self.task.get("seed") if isinstance(self.task, dict) else None
+        except Exception:
+            seed = None
+
+        try:
+            return self.env.reset(seed=seed, task=self.task)
         except TypeError:
-            # Backwards compatibility with reset signatures that accept task only.
-            return self.env.reset(task=self.task)
+            # Fallback for envs without task arg
+            try:
+                return self.env.reset(seed=seed)
+            except TypeError:
+                # Last resort: call without seed/task
+                return self.env.reset()
 
     def _format_observation(self, observation: Any, episode_index: int) -> Any:
         """Prepend an episode marker to the observation for policy awareness."""
@@ -292,7 +328,14 @@ class MultiEpisodeWorkflow(TimingTrackingMixin, Workflow):
         # Use current training step if engine provided it; fall back to uid.
         step_getter = getattr(self, "training_step_getter", None)
         step = step_getter() if callable(step_getter) else None
-        filename = f"{step}.jsonl" if step is not None else f"{uid}.jsonl"
+        if step is None and isinstance(getattr(self, "step_ref", None), dict):
+            step = self.step_ref.get("step")
+        if step is None:
+            step = getattr(self, "_global_step", None)
+        # If no step is available, skip logging to avoid uid-based filenames.
+        if step is None:
+            return
+        filename = f"{step}.jsonl"
 
         out_file = out_dir / filename
         # Append so multiple trajectories in the same step do not overwrite.
