@@ -38,15 +38,26 @@ class GEMEnvAdapter(BaseEnv):
         self.env_id = env_id
         self.env_kwargs = env_kwargs or {}
         self._env = gem.make(env_id, **self.env_kwargs)
+        # Persist a fixed seed so repeated resets recreate the same task.
+        self._seed = self.env_kwargs.get("seed")
 
-    def reset(self) -> tuple[Any, dict]:
+    def reset(self, seed: int | None = None, task: dict | None = None) -> tuple[Any, dict]:
         """Reset the underlying GEM environment.
 
         Returns:
             observation: The initial observation returned by GEM.
             info: Auxiliary information from GEM.
         """
-        observation, info = self._env.reset()
+        # Prefer explicit seed when provided; otherwise reuse the persistent seed.
+        reset_seed = seed if seed is not None else self._seed
+        # Keep the seed for subsequent resets to enforce identical tasks.
+        self._seed = reset_seed
+        # Some GEM envs accept a seed kwarg; fall back silently when unsupported.
+        try:
+            observation, info = self._env.reset(seed=reset_seed)
+        except TypeError:
+            observation, info = self._env.reset(task=task)
+        # Normalize observation with any prefix/suffix decoration.
         return info.get("prefix", "") + observation + info.get("suffix", ""), info
 
     def step(self, action: Any) -> tuple[Any, float, bool, dict]:
@@ -65,7 +76,22 @@ class GEMEnvAdapter(BaseEnv):
         raw_action = action.action if isinstance(action, Action) else action
         observation, reward, terminated, truncated, info = self._env.step(raw_action)
         done = bool(terminated or truncated)
-        return info.get("prefix", "") + observation + info.get("suffix", ""), float(reward), done, info
+        # Preserve termination detail for downstream multi-episode logic.
+        enriched_info = dict(info or {})
+        enriched_info.update(
+            {
+                "terminated": bool(terminated),
+                "truncated": bool(truncated),
+                "raw_reward": float(reward),
+                "max_turns": getattr(self._env, "max_turns", None),
+            }
+        )
+        return (
+            enriched_info.get("prefix", "") + observation + enriched_info.get("suffix", ""),
+            float(reward),
+            done,
+            enriched_info,
+        )
 
     def close(self) -> None:
         """Close the underlying GEM environment."""
