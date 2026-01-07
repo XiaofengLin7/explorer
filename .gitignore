@@ -4,3 +4,5 @@ __pycache__/
 .pytest_cache/
 wandb/
 checkpoints/
+.litellm_proxy/
+litellm_proxy_config_autogen.yaml
