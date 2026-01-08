@@ -74,6 +74,8 @@ class MultiEpisodeEnv(BaseEnv):
         self._episode_lengths: List[int] = []
         self._task: Optional[dict] = None
         self._seed: Optional[int] = None
+        # Store the initial task from dataset (extracted in from_dict)
+        self._initial_task: Optional[dict] = None
 
     @staticmethod
     def _resolve_class(class_path: str) -> Type[BaseEnv]:
@@ -102,6 +104,7 @@ class MultiEpisodeEnv(BaseEnv):
         Args:
             seed: Optional random seed for reproducibility.
             task: Optional task dictionary to pass to inner environment.
+                If None, uses the initial task from dataset (set in from_dict).
 
         Returns:
             observation: Initial observation with episode header.
@@ -112,7 +115,8 @@ class MultiEpisodeEnv(BaseEnv):
         self._episode_step = 0
         self._episode_successes = []
         self._episode_lengths = []
-        self._task = task
+        # Use provided task, or fall back to initial task from dataset
+        self._task = task if task is not None else self._initial_task
         self._seed = seed if seed is not None else self._seed
 
         # Reset inner environment
@@ -333,21 +337,47 @@ class MultiEpisodeEnv(BaseEnv):
     def _reset_inner_env(self) -> tuple[Any, dict]:
         """Reset the inner environment with the stored seed and task.
 
+        Always passes the task to ensure the same task is reused across episodes
+        within a trajectory. Extracts seed from task dict if available.
+
         Returns:
             observation: Initial observation from inner environment.
             info: Info dictionary from inner environment.
         """
-        try:
-            return self.inner_env.reset(seed=self._seed, task=self._task)
-        except TypeError:
-            # Fallback for envs without task/seed args
+        # Extract seed from task dict if available, otherwise use stored seed
+        reset_seed = None
+        if self._task is not None and isinstance(self._task, dict):
+            reset_seed = self._task.get("seed")
+        if reset_seed is None:
+            reset_seed = self._seed
+
+        # Always try to pass task first to preserve the same task across episodes
+        if self._task is not None:
             try:
-                return self.inner_env.reset(seed=self._seed)
+                # Try with both seed (from task) and task dict
+                return self.inner_env.reset(seed=reset_seed, task=self._task)
             except TypeError:
                 try:
+                    # Try with just task dict
                     return self.inner_env.reset(task=self._task)
                 except TypeError:
+                    # Fallback: try with seed extracted from task
+                    if reset_seed is not None:
+                        try:
+                            return self.inner_env.reset(seed=reset_seed)
+                        except TypeError:
+                            pass
+                    # Last resort: no args
                     return self.inner_env.reset()
+        else:
+            # No task available, use seed if provided
+            if reset_seed is not None:
+                try:
+                    return self.inner_env.reset(seed=reset_seed)
+                except TypeError:
+                    return self.inner_env.reset()
+            else:
+                return self.inner_env.reset()
 
     def _format_observation(self, observation: Any, episode_index: int) -> Any:
         """Prepend episode marker to observation.
@@ -452,13 +482,19 @@ class MultiEpisodeEnv(BaseEnv):
             - total_step_cap: Maximum steps across all episodes.
             - success_reward: Reward for successful episodes.
             - episode_header: Text to prepend at episode start.
+            - task: Optional task dictionary from dataset (e.g., {"env_id": ..., "seed": ..., "uid": ...}).
 
         Args:
-            info: Configuration dictionary.
+            info: Configuration dictionary. May contain per-sample task data from dataset
+                (e.g., env_id, seed, uid) mixed with config keys.
 
         Returns:
             A new MultiEpisodeEnv instance.
         """
+        import logging
+
+        logger = logging.getLogger(__name__)
+        
         inner_env_class = info.get("inner_env_class")
         inner_env_kwargs = info.get("inner_env_kwargs", {})
         total_step_cap = info.get("total_step_cap", 30)
@@ -468,13 +504,39 @@ class MultiEpisodeEnv(BaseEnv):
         if inner_env_class is None:
             raise ValueError("inner_env_class must be provided in env_args")
 
-        return MultiEpisodeEnv(
+        # Extract task-related keys from info (these come from dataset extra_info)
+        # Common task keys: env_id, seed, uid, or the whole dict if it's a task dict
+        # Filter out config keys to get the task dict
+        config_keys = {
+            "inner_env_class",
+            "inner_env_kwargs",
+            "total_step_cap",
+            "success_reward",
+            "episode_header",
+        }
+        task_dict = {k: v for k, v in info.items() if k not in config_keys and v is not None}
+        # If we have task-like keys (env_id, seed, uid), use them as the task
+        # Otherwise, use the whole filtered dict if it's non-empty
+        initial_task = task_dict if task_dict else None
+        
+        # Debug logging to verify task extraction
+        logger.debug(
+            f"MultiEpisodeEnv.from_dict: info keys={sorted(info.keys())}, "
+            f"task_dict={task_dict}, initial_task={initial_task}"
+        )
+
+        env = MultiEpisodeEnv(
             inner_env_class=inner_env_class,
             inner_env_kwargs=inner_env_kwargs,
             total_step_cap=total_step_cap,
             success_reward=success_reward,
             episode_header=episode_header,
         )
+        # Store the initial task so it can be reused across episodes
+        env._initial_task = initial_task
+        env._task = initial_task  # Set initial task for first reset
+
+        return env
 
     @staticmethod
     def is_multithread_safe() -> bool:
