@@ -13,13 +13,14 @@ ENV_ID=game:GuessTheNumber-v0-hard
 python scripts/train_gem_multi_episode_env.py \
     data.train_batch_size=32 \
     data.val_batch_size=128 \
-    data.max_prompt_length=10240 \
-    data.max_response_length=8192 \
+    data.max_prompt_length=1024 \
+    data.max_response_length=16384 \
     +rllm.env.env_args.inner_env_class=envs.gem_env_adapter.GEMEnvAdapter \
     +rllm.env.env_args.inner_env_kwargs.env_id=$ENV_ID \
     +rllm.env.env_args.inner_env_kwargs.env_kwargs.max_turns=7 \
     +rllm.env.env_args.total_step_cap=21 \
     +rllm.env.env_args.success_reward=1.0 \
+    rllm.agent.max_steps=21 \
     +rllm.env.env_args.episode_header="New episode begins." \
     actor_rollout_ref.model.path=Qwen/Qwen3-1.7B \
     actor_rollout_ref.actor.optim.lr=1e-6 \

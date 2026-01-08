@@ -171,19 +171,42 @@ class MultiEpisodeEnv(BaseEnv):
 
         # Handle episode completion
         if inner_done:
+            # Record the just-finished episode.
             self._episode_successes.append(success)
             self._episode_lengths.append(self._episode_step)
 
             if not outer_done:
-                # Reset for next episode
-                observation, reset_info = self._reset_inner_env()
+                # We want the agent to see the terminal observation of the
+                # finished episode *and* get primed for the next episode.
+                #
+                # To avoid losing the terminal observation, we first cache it,
+                # then reset the inner env and append the next-episode header +
+                # initial observation after the terminal one.
+                terminal_observation = observation
+
+                # Reset for next episode (same task/seed) and bump index.
+                next_obs, reset_info = self._reset_inner_env()
                 self._episode_index += 1
                 self._episode_step = 0
-                observation = self._format_observation(
-                    observation, self._episode_index
-                )
-                # Merge reset info into info
+                next_obs = self._format_observation(next_obs, self._episode_index)
+
+                # Combine terminal obs and the next-episode header/obs when using
+                # string observations (the GEM adapter always returns strings).
+                if isinstance(terminal_observation, str) and isinstance(next_obs, str):
+                    observation = f"{terminal_observation}\n\n{next_obs}"
+                else:
+                    # Fallback: just expose the terminal observation.
+                    observation = terminal_observation
+
+                # Merge reset info into info so downstream can see both.
                 info = {**info, **reset_info}
+        
+        # If trajectory ends and current episode is incomplete, count it as an attempted episode
+        # (but not successful since it didn't complete)
+        if outer_done and not inner_done and self._episode_step > 0:
+            # Current episode didn't complete, count it as attempted but not successful
+            self._episode_successes.append(False)
+            self._episode_lengths.append(self._episode_step)
 
         # Augment info with multi-episode metadata
         augmented_info = self._augment_info(
@@ -201,17 +224,28 @@ class MultiEpisodeEnv(BaseEnv):
         return observation, shaped_reward, outer_done, augmented_info
 
     def close(self) -> None:
-        """Close the inner environment."""
+        """Close the inner environment.
+        
+        Also counts the current incomplete episode if the trajectory ended early
+        (e.g., due to TRUNCATION, TIMEOUT, or MAX_STEPS in the execution engine).
+        """
+        # If there's an incomplete episode (episode_step > 0), count it as attempted
+        # This handles cases where the execution engine terminates early before
+        # the episode completes or before outer_done=True is set
+        if self._episode_step > 0 and len(self._episode_successes) == self._episode_index:
+            # Current episode didn't complete, count it as attempted but not successful
+            self._episode_successes.append(False)
+            self._episode_lengths.append(self._episode_step)
+        
         if hasattr(self.inner_env, "close"):
             self.inner_env.close()
 
-    def compute_final_reward(self) -> float:
-        """Compute the final trajectory reward.
-
-        Returns:
-            The sum of success rewards (number of successful episodes * success_reward).
-        """
-        return sum(self._episode_successes) * self.success_reward
+    # Note: We do NOT implement compute_final_reward() because:
+    # 1. Rewards are already given per episode in step() (success_reward on episode success)
+    # 2. If we implemented it, it would overwrite the last step's reward, potentially
+    #    zeroing out the reward from the final episode if it completed successfully
+    # 3. The trajectory reward is correctly computed as sum of step rewards, which
+    #    equals the number of successful episodes * success_reward
 
     def get_metrics(self) -> Dict[str, Any]:
         """Collect metrics matching MultiEpisodeWorkflow format.
