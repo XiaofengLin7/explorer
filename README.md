@@ -47,4 +47,39 @@ git submodule update --remote --merge third_party/rllm
 git submodule update --remote --merge third_party/gem
 ```
 
+## Training Configuration
+
+### Configuring Training Variables
+
+The training script `scripts/train_gem_multi_episode_env.sh` uses several configurable variables at the top of the file. Edit these variables to customize your training run:
+
+```bash
+ENV_ID=game:GuessTheNumber-v0-hard
+TOTAL_STEP_CAP=21
+MAX_TURNS_PER_EPISODE=7
+MODEL_PATH=Qwen/Qwen3-1.7B
+```
+
+**Variable Descriptions:**
+
+- **`ENV_ID`**: The GEM environment identifier. Format: `game:EnvironmentName-v0-difficulty`
+  - Example: `game:GuessTheNumber-v0-hard`
+  
+- **`TOTAL_STEP_CAP`**: Maximum total steps allowed across all episodes in a single trajectory
+  - This value is automatically used for both `rllm.env.env_args.total_step_cap` and `rllm.agent.max_steps` to keep them synchronized
+  - Example: `21`
+
+- **`MAX_TURNS_PER_EPISODE`**: Maximum number of turns allowed per individual episode
+  - Example: `7`
+
+- **`MODEL_PATH`**: HuggingFace model identifier or local path to the model
+  - Example: `Qwen/Qwen3-1.7B` or `/path/to/local/model`
+
+**Running Training:**
+
+```bash
+bash scripts/train_gem_multi_episode_env.sh
+```
+
+
 

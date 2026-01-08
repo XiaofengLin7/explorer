@@ -7,17 +7,32 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
 export VLLM_USE_V1=1
 
-ENV_ID=game:GuessTheNumber-v0-hard
+ENV_ID=game:Mastermind-v0-easy
+TOTAL_STEP_CAP=21
+MAX_TURNS_PER_EPISODE=7
+MODEL_PATH=Qwen/Qwen3-1.7B
 
-python scripts/train_gem_multi_episode.py \
+# Extract model name (last part after /)
+MODEL_NAME=$(basename "$MODEL_PATH" | tr '[:upper:]' '[:lower:]')
+# Extract env name (part after :, convert to lowercase with hyphens)
+ENV_NAME=$(echo "$ENV_ID" | cut -d: -f2 | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+# Construct experiment name
+EXPERIMENT_NAME="gem-${ENV_NAME}-multi-episode-env-${MODEL_NAME}"
+
+# Multi-episode via environment wrapper (uses AgentExecutionEngine instead of workflow)
+python scripts/train_gem_multi_episode_env.py \
     data.train_batch_size=32 \
     data.val_batch_size=128 \
-    data.max_prompt_length=10240 \
-    data.max_response_length=8192 \
-    +rllm.env.env_args.env_id=$ENV_ID \
-    +rllm.env.env_args.env_kwargs.max_turns=7 \
-    +rllm.env.env_args.env_kwargs.total_step_cap=21 \
-    actor_rollout_ref.model.path=Qwen/Qwen3-1.7B \
+    data.max_prompt_length=1024 \
+    data.max_response_length=16384 \
+    +rllm.env.env_args.inner_env_class=envs.gem_env_adapter.GEMEnvAdapter \
+    +rllm.env.env_args.inner_env_kwargs.env_id=$ENV_ID \
+    +rllm.env.env_args.inner_env_kwargs.env_kwargs.max_turns=$MAX_TURNS_PER_EPISODE \
+    +rllm.env.env_args.total_step_cap=$TOTAL_STEP_CAP \
+    +rllm.env.env_args.success_reward=1.0 \
+    rllm.agent.max_steps=$TOTAL_STEP_CAP \
+    +rllm.env.env_args.episode_header="New episode begins." \
+    actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.loss_agg_mode=seq-mean-token-mean \
@@ -57,13 +72,13 @@ python scripts/train_gem_multi_episode.py \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='rllm-agent' \
-    trainer.experiment_name='gem-guess-hard-multi-episode-1.7b' \
-    trainer.val_before_train=False \
+    trainer.experiment_name="$EXPERIMENT_NAME" \
+    trainer.val_before_train=True \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=1000 \
     trainer.test_freq=10 \
     trainer.default_hdfs_dir=null \
-    trainer.total_epochs=100 \
+    trainer.total_epochs=10 \
     "$@"
 
