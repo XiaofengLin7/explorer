@@ -34,13 +34,47 @@ def prepare_gem_data(
     test_seeds = rng.integers(0, 1_000_000, size=test_size).tolist()
 
     def task_fn(idx: int, task_seed: int) -> dict:
-        return {"env_id": env_id, "seed": int(task_seed), "uid": f"{env_id}-{idx}-{task_seed}"}
+        return {
+            "env_id": env_id,
+            "seed": int(task_seed),
+            "uid": f"{env_id}-{task_seed}",
+            "data_source": env_id,  # Add data_source for metric grouping
+        }
 
     train_data = [task_fn(i, s) for i, s in enumerate(train_seeds)]
     test_data = [task_fn(i, s) for i, s in enumerate(test_seeds)]
 
-    train_dataset = DatasetRegistry.register_dataset("gem_tasks", train_data, "train")
-    test_dataset = DatasetRegistry.register_dataset("gem_tasks", test_data, "test")
+    # Temporarily override verl postprocessing to include data_source at top level
+    # (verl extracts top-level fields into non_tensor_batch)
+    original_postprocessing = DatasetRegistry.apply_verl_postprocessing
+
+    def gem_verl_postprocessing(data: list[dict]) -> list[dict]:
+        """Custom verl postprocessing that preserves data_source at top level."""
+        processed_data = []
+        for entry in data:
+            processed_entry = {
+                "prompt": [{"role": "user", "content": "placeholder"}],
+                "reward_model": {
+                    "style": "rule",
+                    "ground_truth": None,
+                },
+                "extra_info": entry,
+            }
+            # Preserve data_source at top level so verl can extract it
+            if "data_source" in entry:
+                processed_entry["data_source"] = entry["data_source"]
+            processed_data.append(processed_entry)
+        return processed_data
+
+    DatasetRegistry.apply_verl_postprocessing = staticmethod(gem_verl_postprocessing)
+
+    try:
+        train_dataset = DatasetRegistry.register_dataset("gem_tasks", train_data, "train")
+        test_dataset = DatasetRegistry.register_dataset("gem_tasks", test_data, "test")
+    finally:
+        # Restore original postprocessing
+        DatasetRegistry.apply_verl_postprocessing = original_postprocessing
+
     return train_dataset, test_dataset
 
 

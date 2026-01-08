@@ -63,12 +63,12 @@ python scripts/train_gem_multi_episode_env.py \
     trainer.logger=['console','wandb'] \
     trainer.project_name='rllm-agent' \
     trainer.experiment_name='gem-guess-hard-multi-episode-env-1.7b' \
-    trainer.val_before_train=False \
+    trainer.val_before_train=True \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=1000 \
     trainer.test_freq=10 \
     trainer.default_hdfs_dir=null \
-    trainer.total_epochs=100 \
+    trainer.total_epochs=10 \
     "$@"
 
