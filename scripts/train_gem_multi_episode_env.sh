@@ -9,14 +9,18 @@ export VLLM_USE_V1=1
 
 ENV_ID=game:GuessTheNumber-v0-hard
 
-python scripts/train_gem_multi_episode.py \
+# Multi-episode via environment wrapper (uses AgentExecutionEngine instead of workflow)
+python scripts/train_gem_multi_episode_env.py \
     data.train_batch_size=32 \
     data.val_batch_size=128 \
     data.max_prompt_length=10240 \
     data.max_response_length=8192 \
-    +rllm.env.env_args.env_id=$ENV_ID \
-    +rllm.env.env_args.env_kwargs.max_turns=7 \
-    +rllm.env.env_args.env_kwargs.total_step_cap=21 \
+    +rllm.env.env_args.inner_env_class=envs.gem_env_adapter.GEMEnvAdapter \
+    +rllm.env.env_args.inner_env_kwargs.env_id=$ENV_ID \
+    +rllm.env.env_args.inner_env_kwargs.env_kwargs.max_turns=7 \
+    +rllm.env.env_args.total_step_cap=21 \
+    +rllm.env.env_args.success_reward=1.0 \
+    +rllm.env.env_args.episode_header="New episode begins." \
     actor_rollout_ref.model.path=Qwen/Qwen3-1.7B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
@@ -57,7 +61,7 @@ python scripts/train_gem_multi_episode.py \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='rllm-agent' \
-    trainer.experiment_name='gem-guess-hard-multi-episode-1.7b' \
+    trainer.experiment_name='gem-guess-hard-multi-episode-env-1.7b' \
     trainer.val_before_train=False \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
