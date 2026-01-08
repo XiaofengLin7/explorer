@@ -7,7 +7,17 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
 export VLLM_USE_V1=1
 
-ENV_ID=game:GuessTheNumber-v0-hard
+ENV_ID=game:Mastermind-v0-easy
+TOTAL_STEP_CAP=21
+MAX_TURNS_PER_EPISODE=7
+MODEL_PATH=Qwen/Qwen3-1.7B
+
+# Extract model name (last part after /)
+MODEL_NAME=$(basename "$MODEL_PATH" | tr '[:upper:]' '[:lower:]')
+# Extract env name (part after :, convert to lowercase with hyphens)
+ENV_NAME=$(echo "$ENV_ID" | cut -d: -f2 | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+# Construct experiment name
+EXPERIMENT_NAME="gem-${ENV_NAME}-multi-episode-env-${MODEL_NAME}"
 
 # Multi-episode via environment wrapper (uses AgentExecutionEngine instead of workflow)
 python scripts/train_gem_multi_episode_env.py \
@@ -17,12 +27,12 @@ python scripts/train_gem_multi_episode_env.py \
     data.max_response_length=16384 \
     +rllm.env.env_args.inner_env_class=envs.gem_env_adapter.GEMEnvAdapter \
     +rllm.env.env_args.inner_env_kwargs.env_id=$ENV_ID \
-    +rllm.env.env_args.inner_env_kwargs.env_kwargs.max_turns=7 \
-    +rllm.env.env_args.total_step_cap=21 \
+    +rllm.env.env_args.inner_env_kwargs.env_kwargs.max_turns=$MAX_TURNS_PER_EPISODE \
+    +rllm.env.env_args.total_step_cap=$TOTAL_STEP_CAP \
     +rllm.env.env_args.success_reward=1.0 \
-    rllm.agent.max_steps=21 \
+    rllm.agent.max_steps=$TOTAL_STEP_CAP \
     +rllm.env.env_args.episode_header="New episode begins." \
-    actor_rollout_ref.model.path=Qwen/Qwen3-1.7B \
+    actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.loss_agg_mode=seq-mean-token-mean \
@@ -62,7 +72,7 @@ python scripts/train_gem_multi_episode_env.py \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='rllm-agent' \
-    trainer.experiment_name='gem-guess-hard-multi-episode-env-1.7b' \
+    trainer.experiment_name="$EXPERIMENT_NAME" \
     trainer.val_before_train=True \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
