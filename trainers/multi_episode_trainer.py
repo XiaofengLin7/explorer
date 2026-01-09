@@ -94,6 +94,7 @@ class MultiEpisodeAgentPPOTrainer(AgentPPOTrainer):
         data_source_lst = []
         uid_lst = []
         env_metrics_lst = []  # Collect environment metrics
+        env_data_sources_lst = []  # Collect data_sources for each environment
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
             test_batch.non_tensor_batch["uid"] = np.array([str(uuid.uuid4()) for _ in range(len(test_batch.batch))], dtype=object)
@@ -107,6 +108,9 @@ class MultiEpisodeAgentPPOTrainer(AgentPPOTrainer):
                 "do_sample": False,
                 "validate": True,
             }
+            # Get data_source after repeat (so it matches env order after init_envs_and_agents)
+            batch_data_sources = test_batch.non_tensor_batch.get("data_source", ["unknown"] * len(test_batch.batch))
+            
             self.init_envs_and_agents(test_batch)
 
             if self.config.rllm.stepwise_advantage.enable:
@@ -123,21 +127,28 @@ class MultiEpisodeAgentPPOTrainer(AgentPPOTrainer):
             reward_tensor = test_batch.batch["token_level_scores"]
 
             rewards_lst.append(reward_tensor.sum(-1).cpu())
-            data_source_lst.append(test_batch.non_tensor_batch.get("data_source", ["unknown"] * reward_tensor.shape[0]))
+            data_source_lst.append(batch_data_sources)
             uid_lst.append(test_batch.non_tensor_batch["uid"])
 
-            # Collect environment metrics if available
+            # Collect environment metrics if available, grouped by data_source
             if hasattr(self.agent_execution_engine, "envs") and self.agent_execution_engine.envs:
                 batch_env_metrics = []
-                for env in self.agent_execution_engine.envs:
+                batch_env_data_sources = []
+                for idx, env in enumerate(self.agent_execution_engine.envs):
                     if hasattr(env, "get_metrics") and callable(env.get_metrics):
                         try:
                             env_metrics = env.get_metrics()
                             if isinstance(env_metrics, dict):
                                 batch_env_metrics.append(env_metrics)
+                                # Get data_source for this environment (should match batch order)
+                                if idx < len(batch_data_sources):
+                                    batch_env_data_sources.append(batch_data_sources[idx])
+                                else:
+                                    batch_env_data_sources.append("unknown")
                         except Exception:
                             pass  # Silently ignore if metrics extraction fails
                 env_metrics_lst.append(batch_env_metrics)
+                env_data_sources_lst.append(batch_env_data_sources)
 
         reward_tensor = torch.cat(rewards_lst, dim=0)  # (batch_size,)
         data_sources = np.concatenate(data_source_lst, axis=0)
@@ -178,28 +189,108 @@ class MultiEpisodeAgentPPOTrainer(AgentPPOTrainer):
                 pass_k_lst.append(pass_score >= 1)  # assuming 1 means passed
             metric_dict[f"val/test_score/pass@k/{data_source}"] = np.mean(pass_k_lst)
 
-        # Aggregate environment metrics if available
+        # Aggregate environment metrics if available, grouped by data_source
         if env_metrics_lst:
-            # Flatten list of lists
-            all_env_metrics = [metrics for batch_metrics in env_metrics_lst for metrics in batch_metrics]
-            if all_env_metrics:
-                # Aggregate metrics across all environments
-                # Collect all metric keys
-                all_keys = set()
-                for metrics in all_env_metrics:
-                    all_keys.update(metrics.keys())
-
-                # Aggregate each metric (filter out -1 values as they indicate missing episodes)
-                for key in all_keys:
-                    values = []
-                    for metrics in all_env_metrics:
-                        if key in metrics:
-                            value = metrics[key]
-                            # Filter out -1 values (missing episodes)
-                            if isinstance(value, (int, float)) and value >= 0:
-                                values.append(float(value))
-                    if values:
-                        metric_dict[f"val/{key}"] = np.mean(values)
+            # Flatten list of lists and pair with data_sources
+            all_env_metrics_with_sources = []
+            for batch_idx, batch_metrics in enumerate(env_metrics_lst):
+                batch_data_sources = env_data_sources_lst[batch_idx] if batch_idx < len(env_data_sources_lst) else ["unknown"] * len(batch_metrics)
+                for env_idx, metrics in enumerate(batch_metrics):
+                    data_source = batch_data_sources[env_idx] if env_idx < len(batch_data_sources) else "unknown"
+                    all_env_metrics_with_sources.append((data_source, metrics))
+            
+            if all_env_metrics_with_sources:
+                # Group metrics by data_source
+                data_source_metrics = {}
+                for data_source, metrics in all_env_metrics_with_sources:
+                    if data_source not in data_source_metrics:
+                        data_source_metrics[data_source] = []
+                    data_source_metrics[data_source].append(metrics)
+                
+                # Aggregate metrics per data_source
+                for data_source, metrics_list in data_source_metrics.items():
+                    # Collect all metric keys for this data_source
+                    all_keys = set()
+                    for metrics in metrics_list:
+                        all_keys.update(metrics.keys())
+                    
+                    # Aggregate each metric (filter out -1 values as they indicate missing episodes)
+                    for key in all_keys:
+                        values = []
+                        for metrics in metrics_list:
+                            if key in metrics:
+                                value = metrics[key]
+                                # Filter out -1 values (missing episodes)
+                                if isinstance(value, (int, float)) and value >= 0:
+                                    values.append(float(value))
+                        if values:
+                            # Log with data_source prefix
+                            metric_dict[f"val/{data_source}/{key}"] = np.mean(values)
 
         return metric_dict
+
+    def _transform_agent_trajectories(self, trajectories: list[dict]):
+        """Override to group traj metrics by data_source."""
+        # Call parent method to get the base transformation
+        final_gen_batch_output, metrics = super()._transform_agent_trajectories(trajectories)
+
+        # Group traj metrics by data_source
+        # Trajectories have an 'idx' field that corresponds to the environment index
+        # We can map this to data_source using the stored batch data_sources
+        if hasattr(self, "_current_batch_data_sources") and trajectories:
+            batch_data_sources = self._current_batch_data_sources
+            
+            # Group trajectories by data_source based on their idx
+            traj_metrics_by_source = {}
+            for traj in trajectories:
+                traj_idx = traj.get("idx")
+                if traj_idx is not None and traj_idx < len(batch_data_sources):
+                    data_source = batch_data_sources[traj_idx]
+                else:
+                    data_source = "unknown"
+                
+                if data_source not in traj_metrics_by_source:
+                    traj_metrics_by_source[data_source] = []
+                
+                traj_metrics = traj.get("metrics", {})
+                if traj_metrics:
+                    traj_metrics_by_source[data_source].append(traj_metrics)
+            
+            # Aggregate metrics per data_source
+            for data_source, metrics_list in traj_metrics_by_source.items():
+                if not metrics_list:
+                    continue
+                
+                # Collect all metric keys for this data_source
+                all_keys = set()
+                for m in metrics_list:
+                    all_keys.update(m.keys())
+                
+                # Aggregate each metric (mean, min, max) per data_source
+                for k in all_keys:
+                    v_list = [m.get(k) for m in metrics_list if k in m]
+                    v_list = [v for v in v_list if v is not None and v >= 0]
+                    if not v_list:
+                        continue
+                    v_list = np.array(v_list)
+                    metrics.update(
+                        {
+                            f"traj/{data_source}/{k}_mean": v_list.mean(),
+                            f"traj/{data_source}/{k}_min": v_list.min(),
+                            f"traj/{data_source}/{k}_max": v_list.max(),
+                        }
+                    )
+        
+        return final_gen_batch_output, metrics
+
+    def init_envs_and_agents(self, batch):
+        """Override to track data_source for later metric grouping."""
+        # Store data_source before calling parent (in case batch gets modified)
+        if hasattr(batch, "non_tensor_batch"):
+            batch_data_sources = batch.non_tensor_batch.get("data_source")
+            if batch_data_sources is not None:
+                self._current_batch_data_sources = batch_data_sources
+        
+        # Call parent method
+        return super().init_envs_and_agents(batch)
 

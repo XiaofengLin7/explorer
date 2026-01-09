@@ -479,14 +479,18 @@ class MultiEpisodeEnv(BaseEnv):
         Expected keys:
             - inner_env_class: Class or string path of inner environment.
             - inner_env_kwargs: Dict of kwargs for inner environment.
-            - total_step_cap: Maximum steps across all episodes.
+            - total_step_cap: Maximum steps across all episodes (global default).
             - success_reward: Reward for successful episodes.
             - episode_header: Text to prepend at episode start.
             - task: Optional task dictionary from dataset (e.g., {"env_id": ..., "seed": ..., "uid": ...}).
 
+        Per-task configuration (from dataset task dict):
+            - max_turns_per_episode: Overrides inner_env_kwargs.env_kwargs.max_turns if present.
+            - total_step_cap: Overrides global total_step_cap if present.
+
         Args:
             info: Configuration dictionary. May contain per-sample task data from dataset
-                (e.g., env_id, seed, uid) mixed with config keys.
+                (e.g., env_id, seed, uid, max_turns_per_episode, total_step_cap) mixed with config keys.
 
         Returns:
             A new MultiEpisodeEnv instance.
@@ -497,6 +501,7 @@ class MultiEpisodeEnv(BaseEnv):
         
         inner_env_class = info.get("inner_env_class")
         inner_env_kwargs = info.get("inner_env_kwargs", {})
+        # Global default, may be overridden by per-task config
         total_step_cap = info.get("total_step_cap", 30)
         success_reward = info.get("success_reward", 1.0)
         episode_header = info.get("episode_header", "New episode begins.")
@@ -505,7 +510,7 @@ class MultiEpisodeEnv(BaseEnv):
             raise ValueError("inner_env_class must be provided in env_args")
 
         # Extract task-related keys from info (these come from dataset extra_info)
-        # Common task keys: env_id, seed, uid, or the whole dict if it's a task dict
+        # Common task keys: env_id, seed, uid, max_turns_per_episode, total_step_cap
         # Filter out config keys to get the task dict
         config_keys = {
             "inner_env_class",
@@ -515,14 +520,50 @@ class MultiEpisodeEnv(BaseEnv):
             "episode_header",
         }
         task_dict = {k: v for k, v in info.items() if k not in config_keys and v is not None}
-        # If we have task-like keys (env_id, seed, uid), use them as the task
-        # Otherwise, use the whole filtered dict if it's non-empty
-        initial_task = task_dict if task_dict else None
         
-        # Debug logging to verify task extraction
+        # Extract per-task configuration from task dict
+        # These override global/default values
+        per_task_env_id = task_dict.get("env_id")
+        per_task_max_turns = task_dict.get("max_turns_per_episode")
+        per_task_total_step_cap = task_dict.get("total_step_cap")
+        
+        # Override total_step_cap if provided in task dict
+        if per_task_total_step_cap is not None:
+            total_step_cap = int(per_task_total_step_cap)
+            logger.debug(f"Using per-task total_step_cap: {total_step_cap}")
+        
+        # Override inner_env_kwargs with per-task configuration
+        # inner_env_kwargs may have nested structure: env_kwargs.max_turns
+        inner_env_kwargs = dict(inner_env_kwargs)  # Make a copy to avoid mutating original
+        
+        # Extract env_id from task dict and set it in inner_env_kwargs
+        # GEMEnvAdapter expects env_id as a direct argument
+        if per_task_env_id is not None:
+            inner_env_kwargs["env_id"] = per_task_env_id
+            logger.debug(f"Using per-task env_id: {per_task_env_id}")
+        
+        if per_task_max_turns is not None:
+            # Ensure env_kwargs exists
+            if "env_kwargs" not in inner_env_kwargs:
+                inner_env_kwargs["env_kwargs"] = {}
+            inner_env_kwargs["env_kwargs"] = dict(inner_env_kwargs["env_kwargs"])
+            inner_env_kwargs["env_kwargs"]["max_turns"] = int(per_task_max_turns)
+            logger.debug(f"Using per-task max_turns_per_episode: {per_task_max_turns}")
+        
+        # If we have task-like keys (env_id, seed, uid), use them as the task
+        # Remove per-task config keys from task dict before storing (they're already applied)
+        task_dict_clean = {
+            k: v
+            for k, v in task_dict.items()
+            if k not in ("max_turns_per_episode", "total_step_cap")
+        }
+        initial_task = task_dict_clean if task_dict_clean else None
+        
+        # Debug logging to verify task extraction and config application
         logger.debug(
             f"MultiEpisodeEnv.from_dict: info keys={sorted(info.keys())}, "
-            f"task_dict={task_dict}, initial_task={initial_task}"
+            f"task_dict={task_dict}, initial_task={initial_task}, "
+            f"total_step_cap={total_step_cap}, max_turns={inner_env_kwargs.get('env_kwargs', {}).get('max_turns', 'default')}"
         )
 
         env = MultiEpisodeEnv(
