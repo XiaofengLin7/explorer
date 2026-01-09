@@ -20,6 +20,9 @@ except ImportError as exc:  # pragma: no cover - import guard
         "Install it via `pip install gem-llm` or ensure it is on PYTHONPATH."
     ) from exc
 
+# Auto-register custom Minesweeper environment
+import envs.register_custom_minesweeper  # noqa: F401
+
 
 class GEMEnvAdapter(BaseEnv):
     """Adapter that wraps a GEM environment and normalizes the rLLM API.

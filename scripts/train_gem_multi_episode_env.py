@@ -53,9 +53,7 @@ def main(cfg) -> None:  # type: ignore
     env_id = inner_env_kwargs.get("env_id", "game:GuessTheNumber-v0-hard")
 
     # Register and load GEM task datasets (train/val)
-    prepare_gem_data(env_id=env_id)
-    train_dataset = DatasetRegistry.load_dataset("gem_tasks", "train")
-    val_dataset = DatasetRegistry.load_dataset("gem_tasks", "test")
+    train_dataset, val_dataset = prepare_gem_data(env_id=env_id)
 
     # Set dataset paths in config
     if train_dataset is not None and hasattr(cfg, "data"):
