@@ -7,7 +7,7 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
 export VLLM_USE_V1=1
 
-ENV_ID=game:Mastermind-v0-easy
+ENV_ID=game:Minesweeper-v0-only-reveal
 TOTAL_STEP_CAP=21
 MAX_TURNS_PER_EPISODE=7
 MODEL_PATH=Qwen/Qwen3-1.7B

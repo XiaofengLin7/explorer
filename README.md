@@ -64,16 +64,15 @@ MODEL_PATH=Qwen/Qwen3-1.7B
 
 - **`ENV_ID`**: The GEM environment identifier. Format: `game:EnvironmentName-v0-difficulty`
   - Example: `game:GuessTheNumber-v0-hard`
+  - **Custom Environments**: The framework includes a custom only-reveal Minesweeper variant:
+    - `game:Minesweeper-v0-only-reveal`: Minesweeper variant that only requires revealing all non-mine cells to win (flags are optional, not required for success)
   
 - **`TOTAL_STEP_CAP`**: Maximum total steps allowed across all episodes in a single trajectory
   - This value is automatically used for both `rllm.env.env_args.total_step_cap` and `rllm.agent.max_steps` to keep them synchronized
-  - Example: `21`
 
 - **`MAX_TURNS_PER_EPISODE`**: Maximum number of turns allowed per individual episode
-  - Example: `7`
 
 - **`MODEL_PATH`**: HuggingFace model identifier or local path to the model
-  - Example: `Qwen/Qwen3-1.7B` or `/path/to/local/model`
 
 **Running Training:**
 
