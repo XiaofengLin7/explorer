@@ -1,43 +1,45 @@
 # Multi-Task GEM Training Configuration
 #
-# This configuration file defines multiple GEM tasks to train on simultaneously.
-# Each task can have its own max_turns_per_episode and total_step_cap settings.
+# This configuration file defines multiple GEM tasks for training and validation.
+# You can specify separate tasks for training and validation, allowing you to
+# train on some tasks and validate on different tasks.
 #
 # Format:
-#   tasks: List of task configurations
+#   train_tasks: List of task configurations for training
 #     - env_id: GEM environment identifier (e.g., "game:Minesweeper-v0-only-reveal")
 #     - max_turns_per_episode: Maximum number of turns allowed per episode for this task
 #     - total_step_cap: Maximum total steps across all episodes for this task
 #     - train_size: Number of training examples to generate for this task (optional, default: 512)
-#     - test_size: Number of validation examples to generate for this task (optional, default: 64)
 #
-# Example configurations:
+#   val_tasks: List of task configurations for validation
+#     - env_id: GEM environment identifier
+#     - max_turns_per_episode: Maximum number of turns allowed per episode for this task
+#     - total_step_cap: Maximum total steps across all episodes for this task
+#     - test_size: Number of validation examples to generate for this task (optional, default: 64)
 
-tasks:
-  # Minesweeper task with shorter episodes
+train_tasks:
+  # Minesweeper task for training
   - env_id: "game:Minesweeper-v0-only-reveal"
     max_turns_per_episode: 10
     total_step_cap: 30
     train_size: 512
-    test_size: 64
 
-  # GuessTheNumber task with longer episodes
+  # GuessTheNumber task for training
   - env_id: "game:GuessTheNumber-v0-hard"
     max_turns_per_episode: 5
     total_step_cap: 15
     train_size: 512
-    test_size: 64
 
+val_tasks:
+  # Mastermind task for validation
   - env_id: "game:Mastermind-v0-easy"
     max_turns_per_episode: 7
     total_step_cap: 21
-    train_size: 512
-    test_size: 64
+    test_size: 128
 
-  # Example: You can add more tasks here
-  # - env_id: "game:Mastermind-v0-easy"
-  #   max_turns_per_episode: 15
-  #   total_step_cap: 45
-  #   train_size: 256
-  #   test_size: 32
+  # # You can also validate on tasks you trained on
+  # - env_id: "game:Minesweeper-v0-only-reveal"
+  #   max_turns_per_episode: 10
+  #   total_step_cap: 30
+  #   test_size: 64
 

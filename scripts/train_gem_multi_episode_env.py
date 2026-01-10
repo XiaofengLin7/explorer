@@ -74,9 +74,10 @@ def main(cfg) -> None:  # type: ignore
         # This ensures the agent can handle the longest task
         import yaml
         with open(tasks_config_path, "r") as f:
-            tasks_config = yaml.safe_load(f).get("tasks", [])
+            config = yaml.safe_load(f)
+        all_tasks = config.get("train_tasks", []) + config.get("val_tasks", [])
         max_total_step_cap = max(
-            (task.get("total_step_cap", 30) for task in tasks_config),
+            (task.get("total_step_cap", 30) for task in all_tasks),
             default=30
         )
         # Update max_steps if not explicitly set or if it's too small
