@@ -74,11 +74,45 @@ MODEL_PATH=Qwen/Qwen3-1.7B
 
 - **`MODEL_PATH`**: HuggingFace model identifier or local path to the model
 
-**Running Training:**
+**Running Single-Task Training:**
 
 ```bash
 bash scripts/train_gem_multi_episode_env.sh
 ```
+
+### Multi-Task Training
+
+The framework supports training on multiple GEM tasks simultaneously, with each task having its own `max_turns_per_episode` and `total_step_cap` configuration. You can also specify different tasks for training and validation.
+
+#### Configuration File Format
+
+Create a YAML configuration file (e.g., `configs/multi_task_gem_config.yaml`) with separate `train_tasks` and `val_tasks` sections.
+
+
+**Configuration Fields:**
+
+- **`env_id`**: GEM environment identifier (required)
+- **`max_turns_per_episode`**: Maximum number of turns allowed per episode for this task (required)
+- **`total_step_cap`**: Maximum total steps across all episodes for this task (required)
+- **`train_size`**: Number of training examples to generate (optional, default: 512) - only for `train_tasks`
+- **`test_size`**: Number of validation examples to generate (optional, default: 64) - only for `val_tasks`
+
+**Key Features:**
+
+- **Independent Task Configuration**: Each task can have different `max_turns_per_episode` and `total_step_cap` values
+- **Separate Train/Val Tasks**: You can train on some tasks and validate on different tasks
+- **Per-Task Metrics**: Training and validation metrics are logged per task (using `data_source` as the task identifier)
+  - Training metrics: `traj/{env_id}/{metric}_mean/min/max`
+  - Validation metrics: `val/{env_id}/{metric}`
+
+#### Running Multi-Task Training
+
+Use the multi-task training script:
+
+```bash
+bash scripts/train_gem_multi_task_env.sh
+```
+
 
 
 
