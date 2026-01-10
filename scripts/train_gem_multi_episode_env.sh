@@ -17,7 +17,7 @@ MODEL_NAME=$(basename "$MODEL_PATH" | tr '[:upper:]' '[:lower:]')
 # Extract env name (part after :, convert to lowercase with hyphens)
 ENV_NAME=$(echo "$ENV_ID" | cut -d: -f2 | tr '[:upper:]' '[:lower:]' | tr '_' '-')
 # Construct experiment name
-EXPERIMENT_NAME="gem-${ENV_NAME}-multi-episode-env-${MODEL_NAME}"
+EXPERIMENT_NAME="gem-${ENV_NAME}-multi-episode-env-${MODEL_NAME}-reflection"
 
 # Multi-episode via environment wrapper (uses AgentExecutionEngine instead of workflow)
 python scripts/train_gem_multi_episode_env.py \
@@ -32,6 +32,7 @@ python scripts/train_gem_multi_episode_env.py \
     +rllm.env.env_args.success_reward=1.0 \
     rllm.agent.max_steps=$TOTAL_STEP_CAP \
     +rllm.env.env_args.episode_header="New episode begins." \
+    +rllm.env.env_args.enable_reflection=True \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
