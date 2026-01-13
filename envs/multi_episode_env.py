@@ -251,6 +251,29 @@ class MultiEpisodeEnv(BaseEnv):
     # 3. The trajectory reward is correctly computed as sum of step rewards, which
     #    equals the number of successful episodes * success_reward
 
+    def _get_max_turns(self) -> int:
+        """Get max_turns from inner environment configuration.
+
+        Returns:
+            max_turns value from inner_env_kwargs or inner_env, or total_step_cap as fallback.
+        """
+        # Try to get from inner_env_kwargs first
+        env_kwargs = self.inner_env_kwargs.get("env_kwargs", {})
+        max_turns = env_kwargs.get("max_turns")
+        if max_turns is not None:
+            return int(max_turns)
+        
+        # Try to get from inner_env attribute
+        if hasattr(self.inner_env, "max_turns"):
+            return int(self.inner_env.max_turns)
+        
+        # Try to get from inner_env._env (for GEMEnvAdapter)
+        if hasattr(self.inner_env, "_env") and hasattr(self.inner_env._env, "max_turns"):
+            return int(self.inner_env._env.max_turns)
+        
+        # Fallback to total_step_cap (conservative estimate)
+        return self.total_step_cap
+
     def get_metrics(self) -> Dict[str, Any]:
         """Collect metrics matching MultiEpisodeWorkflow format.
 
@@ -261,6 +284,9 @@ class MultiEpisodeEnv(BaseEnv):
         didn't occur. The -1 values are filtered out during aggregation (the
         trainer filters values < 0).
 
+        If the trajectory ended early (total_steps < total_step_cap), all
+        episodes are treated as failures with max_turns steps each.
+
         Returns:
             Dictionary containing:
                 - episode/success_rate: 1.0 if any episode succeeded, else 0.0
@@ -270,6 +296,28 @@ class MultiEpisodeEnv(BaseEnv):
                 - episode_N/success_rate: Success rate for episode N (first 3)
                 - episode_N/steps: Steps taken in episode N (first 3)
         """
+        max_turns = self._get_max_turns()
+        minimum_episodes = self.total_step_cap // max_turns
+        # Check if trajectory ended early (before reaching step cap)
+        if self._total_steps < self.total_step_cap:
+            # Early termination: treat all episodes as failures with max_turns each
+            
+            metrics: Dict[str, Any] = {
+                "episode/success_rate": 0.0,
+                "episode/num_episodes": minimum_episodes,
+                "episode/success_count": 0,
+                "episode/total_steps": self.total_step_cap,
+                "episode/truncated": 1.0,
+            }
+            
+            for idx in range(1, minimum_episodes + 1):
+                metrics[f"episode_{idx}/success_rate"] = 0.0
+                metrics[f"episode_{idx}/steps"] = max_turns
+
+            
+            return metrics
+        
+        # Normal completion: use recorded episode data
         successes = self._episode_successes
         any_success = 1.0 if any(successes) else 0.0
 
@@ -278,17 +326,16 @@ class MultiEpisodeEnv(BaseEnv):
             "episode/num_episodes": len(successes),
             "episode/success_count": sum(successes),
             "episode/total_steps": self._total_steps,
+            "episode/truncated": 0.0,
         }
 
-        # Per-episode metrics for first 3 episodes
-        # Always include all 3 episodes with -1 for missing ones (filtered during aggregation)
-        for idx in range(1, 4):
+        for idx in range(1, minimum_episodes + 1):
             if idx <= len(successes):
                 metrics[f"episode_{idx}/success_rate"] = 1.0 if successes[idx - 1] else 0.0
             else:
                 metrics[f"episode_{idx}/success_rate"] = -1.0  # Will be filtered
 
-        for idx in range(1, 4):
+        for idx in range(1, minimum_episodes + 1):
             if idx <= len(self._episode_lengths):
                 metrics[f"episode_{idx}/steps"] = self._episode_lengths[idx - 1]
             else:
