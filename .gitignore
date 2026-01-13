@@ -4,3 +4,4 @@ __pycache__/
 .pytest_cache/
 wandb/
 checkpoints/
+MAINTAINING_CUSTOM_CHANGES.md

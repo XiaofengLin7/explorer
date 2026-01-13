@@ -1,6 +1,7 @@
 [submodule "third_party/rllm"]
 	path = third_party/rllm
-	url = https://github.com/rllm-org/rllm.git
+	url = https://github.com/XiaofengLin7/rllm.git
+	branch = fix/token-in-token-out
 [submodule "third_party/gem"]
 	path = third_party/gem
 	url = https://github.com/axon-rl/gem.git
