@@ -301,24 +301,19 @@ class MultiEpisodeEnv(BaseEnv):
         # Check if trajectory ended early (before reaching step cap)
         if self._total_steps < self.total_step_cap:
             # Early termination: treat all episodes as failures with max_turns each
-            # Use actual number of episodes attempted (may include incomplete episode)
-            num_episodes = len(self._episode_successes)
             
             metrics: Dict[str, Any] = {
                 "episode/success_rate": 0.0,
-                "episode/num_episodes": num_episodes,
+                "episode/num_episodes": minimum_episodes,
                 "episode/success_count": 0,
-                "episode/total_steps": self._total_steps,
+                "episode/total_steps": self.total_step_cap,
+                "episode/truncated": 1.0,
             }
             
-            # Per-episode metrics for first 3 episodes
             for idx in range(1, minimum_episodes + 1):
-                if idx <= num_episodes:
-                    metrics[f"episode_{idx}/success_rate"] = 0.0
-                    metrics[f"episode_{idx}/steps"] = max_turns
-                else:
-                    metrics[f"episode_{idx}/success_rate"] = -1.0  # Will be filtered
-                    metrics[f"episode_{idx}/steps"] = -1  # Will be filtered
+                metrics[f"episode_{idx}/success_rate"] = 0.0
+                metrics[f"episode_{idx}/steps"] = max_turns
+
             
             return metrics
         
@@ -331,6 +326,7 @@ class MultiEpisodeEnv(BaseEnv):
             "episode/num_episodes": len(successes),
             "episode/success_count": sum(successes),
             "episode/total_steps": self._total_steps,
+            "episode/truncated": 0.0,
         }
 
         for idx in range(1, minimum_episodes + 1):
