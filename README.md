@@ -39,12 +39,10 @@ PY
 ```
 If both report `OK`, installations are healthy.
 
-## Submodules
+## Pull and update submodules
 Initialize and keep the upstream repos synced:
 ```bash
-git submodule update --init --recursive
-git submodule update --remote --merge third_party/rllm
-git submodule update --remote --merge third_party/gem
+git pull origin main && git submodule update --init --recursive
 ```
 
 ## Training Configuration
