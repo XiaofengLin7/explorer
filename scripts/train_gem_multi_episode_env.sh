@@ -6,7 +6,7 @@ export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,3}
 export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
 export VLLM_USE_V1=1
-
+# export CUDA_VISIBLE_DEVICES=1
 ENV_ID=game:Minesweeper-v0-only-reveal
 TOTAL_STEP_CAP=21
 MAX_TURNS_PER_EPISODE=7
@@ -19,18 +19,22 @@ ENV_NAME=$(echo "$ENV_ID" | cut -d: -f2 | tr '[:upper:]' '[:lower:]' | tr '_' '-
 # Construct experiment name
 EXPERIMENT_NAME="gem-${ENV_NAME}-multi-episode-env-${MODEL_NAME}"
 
+ONLY_KEEP_ACTION=True
+STEPWISE_ADVANTAGE=$ONLY_KEEP_ACTION
+STEPWISE_ADVANTAGE_MODE=broadcast
 # Multi-episode via environment wrapper (uses AgentExecutionEngine instead of workflow)
 python scripts/train_gem_multi_episode_env.py \
     data.train_batch_size=32 \
     data.val_batch_size=128 \
-    data.max_prompt_length=1024 \
-    data.max_response_length=16384 \
+    data.max_prompt_length=8192 \
+    data.max_response_length=8192 \
     +rllm.env.env_args.inner_env_class=envs.gem_env_adapter.GEMEnvAdapter \
     +rllm.env.env_args.inner_env_kwargs.env_id=$ENV_ID \
     +rllm.env.env_args.inner_env_kwargs.env_kwargs.max_turns=$MAX_TURNS_PER_EPISODE \
     +rllm.env.env_args.total_step_cap=$TOTAL_STEP_CAP \
     +rllm.env.env_args.success_reward=1.0 \
     rllm.agent.max_steps=$TOTAL_STEP_CAP \
+    +rllm.agent.agent_args.only_keep_action=$ONLY_KEEP_ACTION \
     +rllm.env.env_args.episode_header="New episode begins." \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -68,7 +72,8 @@ python scripts/train_gem_multi_episode_env.py \
     rllm.compact_filtering.mask_timeout=True \
     rllm.rejection_sample.enable=False \
     rllm.rejection_sample.multiplier=1.0 \
-    rllm.stepwise_advantage.enable=False \
+    rllm.stepwise_advantage.enable=$STEPWISE_ADVANTAGE \
+    rllm.stepwise_advantage.mode=$STEPWISE_ADVANTAGE_MODE \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='rllm-agent' \

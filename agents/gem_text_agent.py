@@ -35,10 +35,11 @@ class GEMTextAgent(BaseAgent):
       returns it as the action.
     """
 
-    def __init__(self, system_prompt: str | None = None, max_steps: int = 20):
+    def __init__(self, system_prompt: str | None = None, max_steps: int = 20, only_keep_action: bool = False):
         self.system_prompt = system_prompt or "Solve the task. Return your final answer inside \\boxed{}."
         self.max_steps = max_steps
         self._messages: list[dict[str, str]] = []
+        self.only_keep_action = only_keep_action
         self._trajectory = Trajectory()
         self.reset()
 
@@ -72,7 +73,10 @@ class GEMTextAgent(BaseAgent):
         """
         parsed_action = extract_last_boxed(response)
         boxed_action = f"\\boxed{{{parsed_action}}}"
-        self._messages.append({"role": "assistant", "content": response})
+        if not self.only_keep_action:
+            self._messages.append({"role": "assistant", "content": response})
+        else:
+            self._messages.append({"role": "assistant", "content": boxed_action})
 
         step = Step(
             chat_completions=copy.deepcopy(self._messages),
