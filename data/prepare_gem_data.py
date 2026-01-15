@@ -99,7 +99,6 @@ def prepare_multi_task_gem_data(
                     total_step_cap: 21
                     train_size: 512
                     inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
-                    inner_env_kwargs: {...}
                     ... any other task-specific parameters ...
                 val_tasks:
                   - env_id: "game:TaskName-v0"
