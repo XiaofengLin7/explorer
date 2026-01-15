@@ -239,7 +239,7 @@ class MultiEpisodeEnv(BaseEnv):
         if self._episode_step > 0 and len(self._episode_successes) == self._episode_index:
             # Current episode didn't complete, count it as attempted but not successful
             self._episode_successes.append(False)
-            self._episode_lengths.append(self._episode_step)
+            self._episode_lengths.append(self._get_max_turns())
         
         if hasattr(self.inner_env, "close"):
             self.inner_env.close()
@@ -280,21 +280,27 @@ class MultiEpisodeEnv(BaseEnv):
         Returns a dictionary with the same metric keys as MultiEpisodeWorkflow's
         collect_metrics method for consistent logging across both approaches.
 
-        Note: Always returns metrics for 3 episodes with -1 for episodes that
-        didn't occur. The -1 values are filtered out during aggregation (the
-        trainer filters values < 0).
-
-        If the trajectory ended early (total_steps < total_step_cap), all
-        episodes are treated as failures with max_turns steps each.
+        Returns metrics for minimum_episodes episodes (calculated as
+        total_step_cap // max_turns). Missing episodes are handled differently
+        based on termination type:
+        - Early termination (total_steps < total_step_cap): Missing episodes
+          get success_rate=0 and steps=max_turns
+        - Normal completion: Missing episodes get success_rate=-1.0 and steps=-1
+          (these -1 values are filtered out during aggregation as the trainer
+          filters values < 0)
 
         Returns:
             Dictionary containing:
                 - episode/success_rate: 1.0 if any episode succeeded, else 0.0
                 - episode/num_episodes: Total number of episodes attempted
                 - episode/success_count: Number of successful episodes
-                - episode/total_steps: Total steps across all episodes
-                - episode_N/success_rate: Success rate for episode N (first 3)
-                - episode_N/steps: Steps taken in episode N (first 3)
+                - episode/total_steps: Total steps across all episodes (uses
+                  total_step_cap for early termination, _total_steps otherwise)
+                - episode/truncated: 1.0 if early termination, 0.0 otherwise
+                - episode_N/success_rate: Success rate for episode N
+                  (minimum_episodes episodes)
+                - episode_N/steps: Steps taken in episode N
+                  (minimum_episodes episodes)
         """
         max_turns = self._get_max_turns()
         minimum_episodes = self.total_step_cap // max_turns
@@ -303,17 +309,22 @@ class MultiEpisodeEnv(BaseEnv):
             # Early termination: treat all episodes as failures with max_turns each
             
             metrics: Dict[str, Any] = {
-                "episode/success_rate": 0.0,
-                "episode/num_episodes": minimum_episodes,
-                "episode/success_count": 0,
+                "episode/success_rate": 1.0 if sum(self._episode_successes) > 0 else 0.0,
+                "episode/num_episodes": len(self._episode_successes),
+                "episode/success_count": sum(self._episode_successes),
                 "episode/total_steps": self.total_step_cap,
                 "episode/truncated": 1.0,
             }
             
             for idx in range(1, minimum_episodes + 1):
-                metrics[f"episode_{idx}/success_rate"] = 0.0
-                metrics[f"episode_{idx}/steps"] = max_turns
-
+                if idx <= len(self._episode_successes):
+                    metrics[f"episode_{idx}/success_rate"] = 1.0 if self._episode_successes[idx - 1] else 0.0
+                else:
+                    metrics[f"episode_{idx}/success_rate"] = 0
+                if idx <= len(self._episode_lengths):
+                    metrics[f"episode_{idx}/steps"] = self._episode_lengths[idx - 1]
+                else:
+                    metrics[f"episode_{idx}/steps"] = max_turns
             
             return metrics
         
