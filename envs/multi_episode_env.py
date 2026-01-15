@@ -652,6 +652,10 @@ class MultiEpisodeEnv(BaseEnv):
                 inner_env_kwargs["env_kwargs"] = {}
             inner_env_kwargs["env_kwargs"] = dict(inner_env_kwargs["env_kwargs"])
             inner_env_kwargs["env_kwargs"]["max_turns"] = int(per_task_max_turns)
+            # add key value pairs to inner_env_kwargs from task_dict except max_turns_per_episode and total_step_cap
+            for k, v in task_dict.items():
+                if k not in ("env_id", "max_turns_per_episode", "total_step_cap", "data_source", 'seed', 'uid'):
+                    inner_env_kwargs["env_kwargs"][k] = v
             logger.debug(f"Using per-task max_turns_per_episode: {per_task_max_turns}")
         
         # If we have task-like keys (env_id, seed, uid), use them as the task
@@ -669,7 +673,7 @@ class MultiEpisodeEnv(BaseEnv):
             f"task_dict={task_dict}, initial_task={initial_task}, "
             f"total_step_cap={total_step_cap}, max_turns={inner_env_kwargs.get('env_kwargs', {}).get('max_turns', 'default')}"
         )
-
+        
         env = MultiEpisodeEnv(
             inner_env_class=inner_env_class,
             inner_env_kwargs=inner_env_kwargs,

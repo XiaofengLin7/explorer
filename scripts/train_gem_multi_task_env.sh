@@ -16,7 +16,7 @@ if [ ! -f "$TASKS_CONFIG" ]; then
     exit 1
 fi
 
-MODEL_PATH=${MODEL_PATH:-Qwen/Qwen3-4B}
+MODEL_PATH=${MODEL_PATH:-Qwen/Qwen3-1.7B}
 
 # Extract model name (last part after /)
 MODEL_NAME=$(basename "$MODEL_PATH" | tr '[:upper:]' '[:lower:]')
@@ -32,7 +32,6 @@ python scripts/train_gem_multi_episode_env.py \
     data.max_prompt_length=1024 \
     data.max_response_length=16384 \
     +data.tasks_config_path="$TASKS_CONFIG" \
-    +rllm.env.env_args.inner_env_class=envs.gem_env_adapter.GEMEnvAdapter \
     +rllm.env.env_args.success_reward=1.0 \
     +rllm.env.env_args.episode_header="New episode begins." \
     rllm.agent.max_steps=50 \
@@ -74,10 +73,10 @@ python scripts/train_gem_multi_episode_env.py \
     rllm.rejection_sample.multiplier=1.0 \
     rllm.stepwise_advantage.enable=False \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger=['console'] \
     trainer.project_name='rllm-agent' \
     trainer.experiment_name="$EXPERIMENT_NAME" \
-    trainer.val_before_train=True \
+    trainer.val_before_train=False \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=1000 \
