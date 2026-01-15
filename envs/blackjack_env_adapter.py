@@ -46,6 +46,7 @@ class BlackjackEnv:
         self.player: List[Card] = []
         self.dealer: List[Card] = []
         self.deck: List[Card] = []
+        self._taken_indices: set[int] = set()
         self._available_indices: List[int] = []
         self.turn: int = 0
         self._done: bool = False
@@ -64,6 +65,8 @@ class BlackjackEnv:
         attempts = 0
         while True:
             self.deck = self._build_deck()
+            self._taken_indices = set()
+            self._available_indices = list(range(len(self.deck)))
             self.dealer = [self._take_card(), self._take_card()]
             dealer_total, _ = _hand_value(self.dealer)
             if dealer_total >= 17 or attempts >= max_attempts:
@@ -135,8 +138,9 @@ class BlackjackEnv:
             natural=False,
             player_total=_hand_value(self.player)[0],
             dealer_total=_hand_value(self.dealer)[0] if done else None,
+            last_drawn_card=card if normalized_action["action"] == "hit" else None,
         )
-        info["last_action"] = normalized_action.get("action")
+        info["last_action"] = normalized_action
 
         return observation, reward, terminated, truncated, info
 
@@ -198,7 +202,8 @@ class BlackjackEnv:
         dealer_total, dealer_soft = _hand_value(self.dealer)
 
         deck_view = [
-            "?" for _ in range(len(self.deck))
+            self._card_to_str(card) if idx in self._taken_indices else "?"
+            for idx, card in enumerate(self.deck)
         ]
 
         return {
@@ -223,6 +228,7 @@ class BlackjackEnv:
         natural: bool,
         player_total: int,
         dealer_total: Optional[int],
+        last_drawn_card: Optional[int] = None,
     ) -> dict:
         return {
             "terminated": bool(terminated),
@@ -235,6 +241,7 @@ class BlackjackEnv:
             "available_indices": list(self._available_indices),
             "dealer_hand": list(self.dealer),
             "player_hand": list(self.player),
+            "last_drawn_card": last_drawn_card,
         }
 
     def _build_deck(self) -> List[Card]:
@@ -246,13 +253,23 @@ class BlackjackEnv:
         if not self.deck:
             raise RuntimeError("Deck is empty.")
 
+        if not self._available_indices:
+            raise RuntimeError("No cards available to draw.")
+
         if explicit_index is None:
-            card = self.deck.pop(0)
+            idx = self._available_indices[0]
         else:
             if explicit_index < 0 or explicit_index >= len(self.deck):
                 raise ValueError(f"Card index {explicit_index} is not available.")
-            card = self.deck.pop(explicit_index)
-        self._available_indices = list(range(len(self.deck)))
+            if explicit_index in self._taken_indices:
+                raise ValueError(f"Card index {explicit_index} has already been taken.")
+            idx = explicit_index
+
+        card = self.deck[idx]
+        self._taken_indices.add(idx)
+        self._available_indices = [
+            i for i in range(len(self.deck)) if i not in self._taken_indices
+        ]
         return card
 
 
@@ -298,19 +315,48 @@ class BlackjackEnvAdapter(BaseEnv):
             }
         )
         obs_text = self._render_observation(obs)
+
+        last_action = info.get("last_action", {})
+        action_name = None
+        action_idx = None
+        if isinstance(last_action, dict):
+            action_name = last_action.get("action")
+            action_idx = last_action.get("card_index")
+        elif isinstance(last_action, str):
+            action_name = last_action
+
+        drawn_card = info.get("last_drawn_card")
+        drawn_card_str = (
+            self._card_to_str(drawn_card) if drawn_card is not None else None
+        )
+
+        if action_name == "hit":
+            action_summary = (
+                f"You chose to hit{f' {action_idx}' if action_idx is not None else ''}"
+            )
+            if drawn_card_str is not None:
+                action_summary += f" and drew {drawn_card_str}"
+            action_summary += "."
+        elif action_name:
+            action_summary = f"You chose to {action_name}."
+        else:
+            action_summary = "You chose an action."
+
         if done:
             dealer_hand = info.get("dealer_hand", [])
             player_hand = info.get("player_hand", [])
             dealer_str = ", ".join(self._card_to_str(c) for c in dealer_hand)
             player_str = ", ".join(self._card_to_str(c) for c in player_hand)
             outcome = "win" if reward > 0 else "lose or tie"
-            action_str = info.get("last_action", "stand")
             obs_text = (
-                f"You choose to {action_str}. Dealer cards: {dealer_str}. "
+                f"{action_summary} Dealer cards: {dealer_str}. "
                 f"Your cards: {player_str}. You {outcome}."
             )
         else:
-            obs_text = f"{obs_text}\n\nPlease select your action."
+            obs_text = (
+                f"{action_summary} Current observation:\n{obs_text}\n\n"
+                "Please select your action."
+            )
         return obs_text, float(reward), done, enriched_info
 
     def close(self) -> None:
