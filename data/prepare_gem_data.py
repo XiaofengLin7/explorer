@@ -87,7 +87,8 @@ def prepare_multi_task_gem_data(
 ) -> Tuple[object, object]:
     """Create and register train/val splits for multiple GEM tasks.
 
-    Each task can have its own max_turns_per_episode and total_step_cap configuration.
+    Each task can have its own configuration (e.g., max_turns_per_episode, total_step_cap, etc.).
+    All parameters except train_size/test_size are included in the task dictionary.
 
     Args:
         tasks_config_path: Path to YAML config file containing task configurations.
@@ -97,23 +98,24 @@ def prepare_multi_task_gem_data(
                     max_turns_per_episode: 7
                     total_step_cap: 21
                     train_size: 512
+                    inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
+                    ... any other task-specific parameters ...
                 val_tasks:
                   - env_id: "game:TaskName-v0"
                     max_turns_per_episode: 7
                     total_step_cap: 21
                     test_size: 64
+                    ... any other task-specific parameters ...
         tasks_config: Optional dict with 'train_tasks' and/or 'val_tasks' keys.
         seed: Random seed for generating task seeds.
 
     Returns:
         (train_dataset, test_dataset) as registered DatasetRegistry entries.
-        Each task dict in the dataset includes:
-            - env_id: GEM environment identifier
+        Each task dict in the dataset includes all parameters from the config
+        (except train_size/test_size), plus:
             - seed: Task seed
             - uid: Unique identifier
             - data_source: env_id (for metric grouping)
-            - max_turns_per_episode: Per-task max turns
-            - total_step_cap: Per-task step cap
 
     Raises:
         ValueError: If neither tasks_config_path nor tasks_config is provided,
@@ -143,29 +145,42 @@ def prepare_multi_task_gem_data(
     rng = np.random.default_rng(seed)
 
     def process_task_list(task_list: List[Dict[str, Any]], is_train: bool) -> List[Dict[str, Any]]:
-        """Process a list of task configs and return task dictionaries."""
+        """Process a list of task configs and return task dictionaries.
+        
+        All parameters from task_cfg are copied to the task_dict, except:
+        - train_size / test_size (used only to determine number of tasks to generate)
+        """
         result = []
         for task_cfg in task_list:
+            # Extract size parameter (train_size or test_size)
+            size_key = "train_size" if is_train else "test_size"
+            size = task_cfg.get(size_key, 512 if is_train else 64)
+            
+            # Get env_id (required field)
+            if "env_id" not in task_cfg:
+                raise ValueError(f"env_id is required in task config: {task_cfg}")
             env_id = task_cfg["env_id"]
-            max_turns_per_episode = task_cfg.get("max_turns_per_episode")
-            total_step_cap = task_cfg.get("total_step_cap")
-            size = task_cfg.get("train_size" if is_train else "test_size", 512 if is_train else 64)
 
             # Generate seeds for this task
             seeds = rng.integers(0, 1_000_000, size=size).tolist()
 
             def task_fn(idx: int, task_seed: int) -> dict:
-                """Create a task dictionary with per-task configuration."""
-                task_dict: Dict[str, Any] = {
-                    "env_id": env_id,
-                    "seed": int(task_seed),
-                    "uid": f"{env_id}-{task_seed}",
-                    "data_source": env_id,
-                }
-                if max_turns_per_episode is not None:
-                    task_dict["max_turns_per_episode"] = max_turns_per_episode
-                if total_step_cap is not None:
-                    task_dict["total_step_cap"] = total_step_cap
+                """Create a task dictionary with all task-specific configuration.
+                
+                Copies all parameters from task_cfg except train_size/test_size.
+                """
+                task_dict: Dict[str, Any] = {}
+                
+                # Copy all parameters from task_cfg except size parameters
+                for key, value in task_cfg.items():
+                    if key not in ["train_size", "test_size"]:
+                        task_dict[key] = value
+                
+                # Add generated/required fields
+                task_dict["seed"] = int(task_seed)
+                task_dict["uid"] = f"{env_id}-{task_seed}"
+                task_dict["data_source"] = env_id  # For metric grouping
+                
                 return task_dict
 
             result.extend([task_fn(i, s) for i, s in enumerate(seeds)])
