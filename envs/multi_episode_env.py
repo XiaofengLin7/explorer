@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Type
 from rllm.agents.agent import Action  # type: ignore
 from rllm.environments.base.base_env import BaseEnv  # type: ignore
 
-from prompts.prompt import MineSweeper_reflection_prompt
+from prompts.prompt import reflection_prompt
 
 class MultiEpisodeEnv(BaseEnv):
     """Wrapper environment that runs multiple episodes of an inner environment.
@@ -67,7 +67,7 @@ class MultiEpisodeEnv(BaseEnv):
         self.success_reward = float(success_reward)
         self.episode_header = episode_header
         self.enable_reflection = enable_reflection
-        self.reflection_prompt = MineSweeper_reflection_prompt
+        self.reflection_prompt = reflection_prompt
 
         # Create the inner environment
         self.inner_env: BaseEnv = self.inner_env_class(**self.inner_env_kwargs)
