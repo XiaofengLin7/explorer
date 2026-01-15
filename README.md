@@ -72,12 +72,17 @@ MODEL_PATH=Qwen/Qwen3-1.7B
 
 - **`MODEL_PATH`**: HuggingFace model identifier or local path to the model
 
-- **`DO_REFLECTION`**: Set as True to enable reflection/summary at the end of each episode
 
 **Running Single-Task Training:**
 
 ```bash
 bash scripts/train_gem_multi_episode_env.sh
+```
+
+**Enable Reflection:**
+
+```bash
++rllm.env.env_args.enable_reflection=True
 ```
 
 ### Multi-Task Training
