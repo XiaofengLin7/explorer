@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Type
 from rllm.agents.agent import Action  # type: ignore
 from rllm.environments.base.base_env import BaseEnv  # type: ignore
 
+from prompts.prompt import reflection_prompt
 
 class MultiEpisodeEnv(BaseEnv):
     """Wrapper environment that runs multiple episodes of an inner environment.
@@ -37,6 +38,7 @@ class MultiEpisodeEnv(BaseEnv):
         total_step_cap: int = 30,
         success_reward: float = 1.0,
         episode_header: str = "New episode begins.",
+        enable_reflection: bool = False,
         **kwargs: Any,
     ):
         """Initialize the multi-episode environment wrapper.
@@ -49,6 +51,8 @@ class MultiEpisodeEnv(BaseEnv):
             total_step_cap: Maximum number of steps across all episodes.
             success_reward: Reward assigned when an episode succeeds.
             episode_header: Text prepended to observations at episode start.
+            enable_reflection: Whether to prompt for reflection after each episode.
+            reflection_prompt: The prompt to use for reflection.
             **kwargs: Additional arguments (ignored, for compatibility).
         """
         super().__init__()
@@ -62,6 +66,8 @@ class MultiEpisodeEnv(BaseEnv):
         self.total_step_cap = max(1, int(total_step_cap))
         self.success_reward = float(success_reward)
         self.episode_header = episode_header
+        self.enable_reflection = enable_reflection
+        self.reflection_prompt = reflection_prompt
 
         # Create the inner environment
         self.inner_env: BaseEnv = self.inner_env_class(**self.inner_env_kwargs)
@@ -76,6 +82,9 @@ class MultiEpisodeEnv(BaseEnv):
         self._seed: Optional[int] = None
         # Store the initial task from dataset (extracted in from_dict)
         self._initial_task: Optional[dict] = None
+
+        # Reflection state
+        self._waiting_for_reflection: bool = False
 
     @staticmethod
     def _resolve_class(class_path: str) -> Type[BaseEnv]:
@@ -119,6 +128,8 @@ class MultiEpisodeEnv(BaseEnv):
         self._task = task if task is not None else self._initial_task
         self._seed = seed if seed is not None else self._seed
 
+        self._waiting_for_reflection = False
+
         # Reset inner environment
         observation, info = self._reset_inner_env()
 
@@ -153,6 +164,26 @@ class MultiEpisodeEnv(BaseEnv):
             done: True only when total_steps >= total_step_cap.
             info: Augmented info dictionary with multi-episode metadata.
         """
+        # Handle reflection step if waiting for reflection
+        if self._waiting_for_reflection:
+            self._waiting_for_reflection = False
+
+            # Start the next episode
+            observation, info = self._reset_inner_env()
+            self._episode_index += 1
+            self._episode_step = 0
+            observation = self._format_observation(observation, self._episode_index)
+
+            augmented_info = self._augment_info(
+                base_info=info,
+                episode_index=self._episode_index,
+                episode_step=self._episode_step,
+                total_step=self._total_steps,
+                episode_start=True,
+                episode_done=False,
+            )
+            return observation, 0.0, False, augmented_info
+        
         # Unwrap Action if needed
         raw_action = action.action if isinstance(action, Action) else action
 
@@ -180,30 +211,41 @@ class MultiEpisodeEnv(BaseEnv):
             self._episode_lengths.append(self._episode_step)
 
             if not outer_done:
-                # We want the agent to see the terminal observation of the
-                # finished episode *and* get primed for the next episode.
-                #
-                # To avoid losing the terminal observation, we first cache it,
-                # then reset the inner env and append the next-episode header +
-                # initial observation after the terminal one.
-                terminal_observation = observation
-
-                # Reset for next episode (same task/seed) and bump index.
-                next_obs, reset_info = self._reset_inner_env()
-                self._episode_index += 1
-                self._episode_step = 0
-                next_obs = self._format_observation(next_obs, self._episode_index)
-
-                # Combine terminal obs and the next-episode header/obs when using
-                # string observations (the GEM adapter always returns strings).
-                if isinstance(terminal_observation, str) and isinstance(next_obs, str):
-                    observation = f"{terminal_observation}\n\n{next_obs}"
+                # If reflection is enabled, we prompt for reflection instead of immediate reset
+                if self.enable_reflection:
+                    self._waiting_for_reflection = True
+                    
+                    # Append reflection prompt to terminal observation
+                    if isinstance(observation, str):
+                        observation = f"{observation}\n\n{self.reflection_prompt}"
+                    
+                    # We return the terminal observation + prompt, with episode_done=True
+                    # The inner env is NOT reset yet.
                 else:
-                    # Fallback: just expose the terminal observation.
-                    observation = terminal_observation
+                    # We want the agent to see the terminal observation of the
+                    # finished episode *and* get primed for the next episode.
+                    #
+                    # To avoid losing the terminal observation, we first cache it,
+                    # then reset the inner env and append the next-episode header +
+                    # initial observation after the terminal one.
+                    terminal_observation = observation
 
-                # Merge reset info into info so downstream can see both.
-                info = {**info, **reset_info}
+                    # Reset for next episode (same task/seed) and bump index.
+                    next_obs, reset_info = self._reset_inner_env()
+                    self._episode_index += 1
+                    self._episode_step = 0
+                    next_obs = self._format_observation(next_obs, self._episode_index)
+
+                    # Combine terminal obs and the next-episode header/obs when using
+                    # string observations (the GEM adapter always returns strings).
+                    if isinstance(terminal_observation, str) and isinstance(next_obs, str):
+                        observation = f"{terminal_observation}\n\n{next_obs}"
+                    else:
+                        # Fallback: just expose the terminal observation.
+                        observation = terminal_observation
+
+                    # Merge reset info into info so downstream can see both.
+                    info = {**info, **reset_info}
         
         # If trajectory ends and current episode is incomplete, count it as an attempted episode
         # (but not successful since it didn't complete)
@@ -563,6 +605,8 @@ class MultiEpisodeEnv(BaseEnv):
         total_step_cap = info.get("total_step_cap", 30)
         success_reward = info.get("success_reward", 1.0)
         episode_header = info.get("episode_header", "New episode begins.")
+        enable_reflection = info.get("enable_reflection", False)
+        reflection_prompt = info.get("reflection_prompt", "")
 
         if inner_env_class is None:
             raise ValueError("inner_env_class must be provided in env_args")
@@ -576,6 +620,8 @@ class MultiEpisodeEnv(BaseEnv):
             "total_step_cap",
             "success_reward",
             "episode_header",
+            "enable_reflection",
+            "reflection_prompt",
         }
         task_dict = {k: v for k, v in info.items() if k not in config_keys and v is not None}
         
@@ -630,6 +676,8 @@ class MultiEpisodeEnv(BaseEnv):
             total_step_cap=total_step_cap,
             success_reward=success_reward,
             episode_header=episode_header,
+            enable_reflection=enable_reflection,
+            reflection_prompt=reflection_prompt,
         )
         # Store the initial task so it can be reused across episodes
         env._initial_task = initial_task
