@@ -32,6 +32,7 @@ python scripts/train_gem_multi_episode_env.py \
     +rllm.env.env_args.success_reward=1.0 \
     rllm.agent.max_steps=$TOTAL_STEP_CAP \
     +rllm.env.env_args.episode_header="New episode begins." \
+    +rllm.env.env_args.enable_reflection=True \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
