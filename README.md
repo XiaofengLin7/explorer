@@ -72,6 +72,8 @@ MODEL_PATH=Qwen/Qwen3-1.7B
 
 - **`MODEL_PATH`**: HuggingFace model identifier or local path to the model
 
+- **`DO_REFLECTION`**: Set as True to enable reflection/summary at the end of each episode
+
 **Running Single-Task Training:**
 
 ```bash
@@ -94,7 +96,6 @@ Create a YAML configuration file (e.g., `configs/multi_task_gem_config.yaml`) wi
 - **`total_step_cap`**: Maximum total steps across all episodes for this task (required)
 - **`train_size`**: Number of training examples to generate (optional, default: 512) - only for `train_tasks`
 - **`test_size`**: Number of validation examples to generate (optional, default: 64) - only for `val_tasks`
-- **`do_reflection`**: Set as True to enable reflection/summary at the end of each episode
 
 **Key Features:**
 
