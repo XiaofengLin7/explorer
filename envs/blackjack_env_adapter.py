@@ -65,16 +65,16 @@ class BlackjackEnv:
         attempts = 0
         while True:
             self.deck = self._build_deck()
-            self._taken_indices = set()
-            self._available_indices = list(range(len(self.deck)))
-            self.dealer = [self._take_card(), self._take_card()]
+            self.dealer = [self.deck.pop(0), self.deck.pop(0)]
             dealer_total, _ = _hand_value(self.dealer)
             if dealer_total >= 17 or attempts >= max_attempts:
                 break
             attempts += 1
         # Player draws after dealer is fixed.
-        self.player = [self._take_card(), self._take_card()]
-        # Refresh available indices after initial dealing
+        self.player = [self.deck.pop(0), self.deck.pop(0)]
+
+        # Remaining deck is 52 - 4 = 48 cards; keep length fixed for the episode.
+        self._taken_indices = set()
         self._available_indices = list(range(len(self.deck)))
         self.turn = 0
         self._done = False
@@ -202,8 +202,8 @@ class BlackjackEnv:
         dealer_total, dealer_soft = _hand_value(self.dealer)
 
         deck_view = [
-            self._card_to_str(card) if idx in self._taken_indices else "?"
-            for idx, card in enumerate(self.deck)
+            self._card_to_str(self.deck[idx]) if idx in self._taken_indices else "?"
+            for idx in range(len(self.deck))
         ]
 
         return {
@@ -248,6 +248,14 @@ class BlackjackEnv:
         deck = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10] * 4
         self._rng.shuffle(deck)
         return deck
+
+    @staticmethod
+    def _card_to_str(card: Card) -> str:
+        if card == 1:
+            return "A"
+        if card == 10:
+            return "10"
+        return str(card)
 
     def _take_card(self, explicit_index: Optional[int] = None) -> Card:
         if not self.deck:
@@ -330,6 +338,13 @@ class BlackjackEnvAdapter(BaseEnv):
             self._card_to_str(drawn_card) if drawn_card is not None else None
         )
 
+        player_total_info = info.get("player_total")
+        busted = (
+            bool(info.get("terminated"))
+            and player_total_info is not None
+            and player_total_info > 21
+        )
+
         if action_name == "hit":
             action_summary = (
                 f"You chose to hit{f' {action_idx}' if action_idx is not None else ''}"
@@ -348,10 +363,16 @@ class BlackjackEnvAdapter(BaseEnv):
             dealer_str = ", ".join(self._card_to_str(c) for c in dealer_hand)
             player_str = ", ".join(self._card_to_str(c) for c in player_hand)
             outcome = "win" if reward > 0 else "lose or tie"
-            obs_text = (
-                f"{action_summary} Dealer cards: {dealer_str}. "
-                f"Your cards: {player_str}. You {outcome}."
-            )
+            if busted:
+                obs_text = (
+                    f"{action_summary} Dealer cards: {dealer_str}. "
+                    f"Your cards: {player_str}. You lose because you bust."
+                )
+            else:
+                obs_text = (
+                    f"{action_summary} Dealer cards: {dealer_str}. "
+                    f"Your cards: {player_str}. You {outcome}."
+                )
         else:
             obs_text = (
                 f"{action_summary} Current observation:\n{obs_text}\n\n"
@@ -384,13 +405,13 @@ class BlackjackEnvAdapter(BaseEnv):
             else f"{self._card_to_str(obs['dealer_upcard'])}, ?"
         )
         deck_display = " ".join(
-            f"{i}:{self._card_to_str(c) if c != '?' else '?'}"
+            f"{i}:{c}"
             for i, c in enumerate(obs["deck"])
         )
         lines = [
             f"Dealer: {dealer_cards}",
             f"Your hand ({obs['player_total']}): {player_cards}",
-            f"Deck (index:value, ?=hidden): {deck_display}",
+            f"Deck (index:value, ?=hidden, drawn=revealed): {deck_display}",
             f"Available indices: {obs['available_indices']}",
             "Actions: 'stand' or 'hit <card_index>' (choose an available index)",
         ]
