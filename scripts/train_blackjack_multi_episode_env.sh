@@ -27,8 +27,6 @@ python scripts/train_gem_multi_episode_env.py \
     +rllm.env.env_args.inner_env_class=envs.blackjack_env_adapter.BlackjackEnvAdapter \
     +rllm.env.env_args.inner_env_kwargs.env_id=game:Blackjack-v0 \
     +rllm.env.env_args.inner_env_kwargs.max_turns=$MAX_TURNS_PER_EPISODE \
-    +rllm.env.env_args.inner_env_kwargs.natural_payout=1.5 \
-    +rllm.env.env_args.inner_env_kwargs.dealer_hits_soft_17=False \
     +rllm.env.env_args.total_step_cap=$TOTAL_STEP_CAP \
     +rllm.env.env_args.success_reward=1.0 \
     rllm.agent.max_steps=$TOTAL_STEP_CAP \
