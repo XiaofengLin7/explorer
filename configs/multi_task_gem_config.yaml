@@ -50,6 +50,13 @@ train_tasks:
     train_size: 512
     inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
 
+  # Blackjack task for training
+  - env_id: "game:Blackjack-v0"
+    max_turns_per_episode: 4
+    total_step_cap: 12
+    train_size: 512
+    inner_env_class: 'envs.blackjack_env_adapter.BlackjackEnvAdapter'
+
 val_tasks:
   # Mastermind task for validation
   - env_id: "game:Mastermind-v0-easy"
