@@ -33,13 +33,9 @@ class BlackjackEnv:
     def __init__(
         self,
         max_turns: int = 30,
-        natural_payout: float = 1.5,
-        dealer_hits_soft_17: bool = False,
         seed: Optional[int] = None,
     ) -> None:
         self.max_turns = max_turns
-        self.natural_payout = natural_payout
-        self.dealer_hits_soft_17 = dealer_hits_soft_17
         self._rng = random.Random(seed)
         self._seed = seed
 
@@ -289,8 +285,6 @@ class BlackjackEnvAdapter(BaseEnv):
         env_id: Optional[str] = None,  # Ignored; accepted for compatibility with MultiEpisodeEnv
         env_kwargs: Optional[dict] = None,  # Ignored; accepted for compatibility
         max_turns: int = 30,
-        natural_payout: float = 1.5,
-        dealer_hits_soft_17: bool = False,
         seed: Optional[int] = None,
         **_: Any,
     ) -> None:
@@ -298,8 +292,6 @@ class BlackjackEnvAdapter(BaseEnv):
         self._seed = seed
         self._env = BlackjackEnv(
             max_turns=max_turns,
-            natural_payout=natural_payout,
-            dealer_hits_soft_17=dealer_hits_soft_17,
             seed=seed,
         )
 
@@ -388,8 +380,6 @@ class BlackjackEnvAdapter(BaseEnv):
     def from_dict(info: dict) -> "BlackjackEnvAdapter":
         return BlackjackEnvAdapter(
             max_turns=info.get("max_turns", 30),
-            natural_payout=info.get("natural_payout", 1.5),
-            dealer_hits_soft_17=info.get("dealer_hits_soft_17", False),
             seed=info.get("seed"),
         )
 
