@@ -49,7 +49,7 @@ git pull origin main && git submodule update --init --recursive
 
 ### Configuring Training Variables
 
-The training script `scripts/train_gem_multi_episode_env.sh` uses several configurable variables at the top of the file. Edit these variables to customize your training run:
+The training script `scripts/train_single_task_multi_episode.sh` uses several configurable variables at the top of the file. Edit these variables to customize your training run:
 
 ```bash
 ENV_ID=game:GuessTheNumber-v0-hard
@@ -76,7 +76,7 @@ MODEL_PATH=Qwen/Qwen3-1.7B
 **Running Single-Task Training:**
 
 ```bash
-bash scripts/train_gem_multi_episode_env.sh
+bash scripts/train_single_task_multi_episode.sh
 ```
 
 **Enable Reflection:**
@@ -95,7 +95,7 @@ The framework provides two multi-task training modes:
 
 | Mode | Training Script | Training Env | Validation Env | Use Case |
 |------|-----------------|--------------|----------------|----------|
-| **Multi-Episode** | `train_gem_multi_task_env.sh` | MultiEpisodeEnv | MultiEpisodeEnv | Model gets multiple attempts per task during both training and validation |
+| **Multi-Episode** | `train_multi_task_multi_episode.sh` | MultiEpisodeEnv | MultiEpisodeEnv | Model gets multiple attempts per task during both training and validation |
 | **Single-Episode** | `train_multi_task_single_episode.sh` | SingleEpisodeEnv | MultiEpisodeEnv | Model trains on single attempts but validates with multiple attempts |
 
 #### Configuration File Format
@@ -125,10 +125,10 @@ Multi-episode training gives the model multiple attempts (episodes) per task wit
 
 ```bash
 # Uses configs/multi_task_multi_episode_config.yaml by default
-bash scripts/train_gem_multi_task_env.sh
+bash scripts/train_multi_task_multi_episode.sh
 
 # Or specify a custom config
-TASKS_CONFIG=configs/my_config.yaml bash scripts/train_gem_multi_task_env.sh
+TASKS_CONFIG=configs/my_config.yaml bash scripts/train_multi_task_multi_episode.sh
 ```
 
 #### Running Single-Episode Training

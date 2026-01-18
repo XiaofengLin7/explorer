@@ -7,33 +7,35 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
 export VLLM_USE_V1=1
 
-ENV_ID=game:Minesweeper-v0-only-reveal
-TOTAL_STEP_CAP=21
-MAX_TURNS_PER_EPISODE=7
-MODEL_PATH=Qwen/Qwen3-1.7B
+# Multi-task configuration: path to YAML config file (required)
+TASKS_CONFIG=${TASKS_CONFIG:-configs/multi_task_multi_episode_config.yaml}
+
+if [ ! -f "$TASKS_CONFIG" ]; then
+    echo "Error: Tasks config file not found: $TASKS_CONFIG"
+    echo "Please set TASKS_CONFIG environment variable to point to a valid YAML config file."
+    exit 1
+fi
+
+MODEL_PATH=${MODEL_PATH:-Qwen/Qwen3-1.7B}
 
 # Extract model name (last part after /)
 MODEL_NAME=$(basename "$MODEL_PATH" | tr '[:upper:]' '[:lower:]')
-# Extract env name (part after :, convert to lowercase with hyphens)
-ENV_NAME=$(echo "$ENV_ID" | cut -d: -f2 | tr '[:upper:]' '[:lower:]' | tr '_' '-')
-# Construct experiment name
-EXPERIMENT_NAME="gem-${ENV_NAME}-multi-episode-env-${MODEL_NAME}"
+
+# Construct experiment name from config file name
+CONFIG_NAME=$(basename "$TASKS_CONFIG" .yaml | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+EXPERIMENT_NAME="gem-multi-task-${CONFIG_NAME}-${MODEL_NAME}"
 
 # Multi-episode via environment wrapper (uses AgentExecutionEngine instead of workflow)
-python scripts/train_gem_multi_episode_env.py \
+python scripts/train_multi_episode.py \
     data.train_batch_size=32 \
     data.val_batch_size=128 \
     data.max_prompt_length=1024 \
     data.max_response_length=16384 \
-    +rllm.env.env_args.inner_env_class=envs.gem_env_adapter.GEMEnvAdapter \
-    +rllm.env.env_args.inner_env_kwargs.env_id=$ENV_ID \
-    +rllm.env.env_args.inner_env_kwargs.env_kwargs.max_turns=$MAX_TURNS_PER_EPISODE \
-    +rllm.env.env_args.total_step_cap=$TOTAL_STEP_CAP \
+    +data.tasks_config_path="$TASKS_CONFIG" \
     +rllm.env.env_args.success_reward=1.0 \
-    rllm.agent.max_steps=$TOTAL_STEP_CAP \
     +rllm.env.env_args.episode_header="New episode begins." \
-    +rllm.env.env_args.enable_reflection=True \
-    actor_rollout_ref.model.path=$MODEL_PATH \
+    rllm.agent.max_steps=50 \
+    actor_rollout_ref.model.path="$MODEL_PATH" \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.loss_agg_mode=seq-mean-token-mean \
@@ -59,7 +61,7 @@ python scripts/train_gem_multi_episode_env.py \
     actor_rollout_ref.rollout.n=8 \
     actor_rollout_ref.rollout.val_kwargs.n=1 \
     actor_rollout_ref.rollout.val_kwargs.temperature=0.6 \
-    actor_rollout_ref.rollout.val_kwargs.top_p=1.0 \
+    actor_rollout_ref.rollout.val_kwargs.top_p=1 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.adv_estimator=grpo \
     rllm.compact_filtering.enable=False \
@@ -74,7 +76,7 @@ python scripts/train_gem_multi_episode_env.py \
     trainer.logger=['console','wandb'] \
     trainer.project_name='rllm-agent' \
     trainer.experiment_name="$EXPERIMENT_NAME" \
-    trainer.val_before_train=True \
+    trainer.val_before_train=False \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=1000 \
