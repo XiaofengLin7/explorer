@@ -50,7 +50,31 @@ class MultiEpisodeAsyncAgentExecutionEngine(AsyncAgentExecutionEngine):
 
 
 class MultiEpisodeAgentPPOTrainer(AgentPPOTrainer):
-    """Trainer that uses MultiEpisodeAsyncAgentExecutionEngine for metrics extraction."""
+    """Trainer that uses MultiEpisodeAsyncAgentExecutionEngine for metrics extraction.
+
+    Supports separate environment classes for training and validation, enabling
+    scenarios like training with SingleEpisodeEnv but validating with MultiEpisodeEnv.
+    """
+
+    def __init__(
+        self,
+        val_env_class: type | None = None,
+        val_env_args: dict | None = None,
+        **kwargs,
+    ):
+        """Initialize the trainer with optional validation environment class.
+
+        Args:
+            val_env_class: Optional validation environment class. If provided,
+                uses this class instead of env_class during validation.
+            val_env_args: Optional validation environment arguments. If provided,
+                these override env_args during validation.
+            **kwargs: Arguments passed to parent AgentPPOTrainer.
+        """
+        super().__init__(**kwargs)
+        self.val_env_class = val_env_class
+        self.val_env_args = val_env_args
+        self._is_validation_mode = False
 
     def init_workers(self):
         """Initialize workers with custom execution engine."""
@@ -89,7 +113,14 @@ class MultiEpisodeAgentPPOTrainer(AgentPPOTrainer):
         )
 
     def _validate_agent(self):
-        """Override validation to include environment metrics from MultiEpisodeEnv."""
+        """Override validation to include environment metrics from MultiEpisodeEnv.
+
+        If val_env_class is set, uses that environment class for validation
+        instead of the training env_class.
+        """
+        # Enable validation mode for init_envs_and_agents
+        self._is_validation_mode = True
+
         rewards_lst = []
         data_source_lst = []
         uid_lst = []
@@ -227,6 +258,9 @@ class MultiEpisodeAgentPPOTrainer(AgentPPOTrainer):
                             # Log with data_source prefix
                             metric_dict[f"val/{data_source}/{key}"] = np.mean(values)
 
+        # Disable validation mode
+        self._is_validation_mode = False
+
         return metric_dict
 
     def _transform_agent_trajectories(self, trajectories: list[dict]):
@@ -284,13 +318,30 @@ class MultiEpisodeAgentPPOTrainer(AgentPPOTrainer):
         return final_gen_batch_output, metrics
 
     def init_envs_and_agents(self, batch):
-        """Override to track data_source for later metric grouping."""
+        """Override to track data_source and support validation env class.
+
+        When _is_validation_mode is True and val_env_class is set, temporarily
+        swaps the env_class and env_args to use the validation-specific ones.
+        """
         # Store data_source before calling parent (in case batch gets modified)
         if hasattr(batch, "non_tensor_batch"):
             batch_data_sources = batch.non_tensor_batch.get("data_source")
             if batch_data_sources is not None:
                 self._current_batch_data_sources = batch_data_sources
-        
-        # Call parent method
-        return super().init_envs_and_agents(batch)
+
+        # If in validation mode and val_env_class is set, swap env class temporarily
+        if self._is_validation_mode and self.val_env_class is not None:
+            original_env_class = self.env_class
+            original_env_args = self.env_args
+            self.env_class = self.val_env_class
+            if self.val_env_args is not None:
+                self.env_args = self.val_env_args
+            try:
+                return super().init_envs_and_agents(batch)
+            finally:
+                # Restore original env class and args
+                self.env_class = original_env_class
+                self.env_args = original_env_args
+        else:
+            return super().init_envs_and_agents(batch)
 

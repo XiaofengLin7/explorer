@@ -27,6 +27,7 @@ from data.prepare_gem_data import (  # noqa: E402
     prepare_gem_data,
     prepare_multi_task_gem_data,
 )
+from envs.multi_episode_env import MultiEpisodeEnv  # noqa: E402
 from envs.single_episode_env import SingleEpisodeEnv  # noqa: E402
 from rllm.data import DatasetRegistry  # type: ignore  # noqa: E402
 from trainers.train_multi_episode import run_ppo_agent  # noqa: E402
@@ -69,18 +70,29 @@ def main(cfg) -> None:  # type: ignore
             tasks_config_path=tasks_config_path
         )
 
-        # Calculate max max_turns_per_episode across all tasks for rllm.agent.max_steps
+        # Calculate max steps needed for rllm.agent.max_steps
+        # For training (single episode): use max_turns_per_episode
+        # For validation (multi episode): use total_step_cap if available
         import yaml
         with open(tasks_config_path, "r") as f:
             config = yaml.safe_load(f)
         all_tasks = config.get("train_tasks", []) + config.get("val_tasks", [])
+
+        # Get max of both max_turns_per_episode (for training) and total_step_cap (for validation)
         max_turns = max(
             (task.get("max_turns_per_episode", 30) for task in all_tasks),
             default=30
         )
+        max_total_step_cap = max(
+            (task.get("total_step_cap", task.get("max_turns_per_episode", 30)) for task in all_tasks),
+            default=30
+        )
+        # Use the larger of the two to ensure both training and validation work
+        required_max_steps = max(max_turns, max_total_step_cap)
+
         # Update max_steps if not explicitly set or if it's too small
-        if not hasattr(cfg.rllm.agent, "max_steps") or cfg.rllm.agent.max_steps < max_turns:
-            cfg.rllm.agent.max_steps = max_turns
+        if not hasattr(cfg.rllm.agent, "max_steps") or cfg.rllm.agent.max_steps < required_max_steps:
+            cfg.rllm.agent.max_steps = required_max_steps
     else:
         # Single-task mode: backward compatibility
         inner_env_kwargs = env_args.get("inner_env_kwargs", {})
@@ -100,12 +112,14 @@ def main(cfg) -> None:  # type: ignore
     agent_args = dict(agent_args or {})
     agent_args.setdefault("system_prompt", _default_single_episode_prompt())
 
-    # Use the same training infrastructure but with SingleEpisodeEnv
+    # Use SingleEpisodeEnv for training, MultiEpisodeEnv for validation
+    # This allows training on single episodes but validating with multiple attempts
     run_ppo_agent(
         cfg,
         env_class=SingleEpisodeEnv,
         agent_class=GEMTextAgent,
         agent_args=agent_args,
+        val_env_class=MultiEpisodeEnv,
     )
 
 

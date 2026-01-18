@@ -30,6 +30,8 @@ def run_ppo_agent(
     agent_class: type | None = None,
     env_args: dict | None = None,
     agent_args: dict | None = None,
+    val_env_class: type | None = None,
+    val_env_args: dict | None = None,
 ) -> None:
     """Run PPO agent training with custom multi-episode trainer.
 
@@ -39,6 +41,10 @@ def run_ppo_agent(
         agent_class: Optional agent class (uses config mapping if not provided).
         env_args: Optional environment arguments.
         agent_args: Optional agent arguments.
+        val_env_class: Optional validation environment class. If provided, uses
+            this class instead of env_class during validation.
+        val_env_args: Optional validation environment arguments. If provided,
+            these override env_args during validation.
     """
     if not ray.is_initialized():
         if config is not None and hasattr(config, "ray_init"):
@@ -64,6 +70,8 @@ def run_ppo_agent(
             agent_class=agent_class,
             env_args=env_args,
             agent_args=agent_args,
+            val_env_class=val_env_class,
+            val_env_args=val_env_args,
         )
     )
 
@@ -89,6 +97,8 @@ class MultiEpisodeTaskRunner:
         agent_args: dict | None = None,
         env_args: dict | None = None,
         agent_run_func: Any | None = None,
+        val_env_class: type | None = None,
+        val_env_args: dict | None = None,
     ) -> None:
         """Execute the main PPO training workflow with multi-episode support."""
         from pprint import pprint
@@ -240,6 +250,8 @@ class MultiEpisodeTaskRunner:
                 agent_class=agent_class,
                 env_args=env_args,
                 agent_args=agent_args,
+                val_env_class=val_env_class,
+                val_env_args=val_env_args,
             )
 
         trainer.init_workers()
