@@ -1,0 +1,57 @@
+# Single-Episode Multi-Task GEM Training Configuration
+#
+# This configuration file defines multiple GEM tasks for single-episode training.
+# Unlike multi-episode training, each trajectory ends when the environment returns done=True.
+#
+# Format:
+#   train_tasks: List of task configurations for training
+#     - env_id: GEM environment identifier (e.g., "game:Minesweeper-v0-only-reveal")
+#     - max_turns_per_episode: Maximum number of turns allowed per episode for this task
+#     - train_size: Number of training examples to generate for this task (optional, default: 512)
+#     - inner_env_class: The inner environment adapter class to use
+#
+#   val_tasks: List of task configurations for validation
+#     - env_id: GEM environment identifier
+#     - max_turns_per_episode: Maximum number of turns allowed per episode for this task
+#     - test_size: Number of validation examples to generate for this task (optional, default: 64)
+#     - inner_env_class: The inner environment adapter class to use
+
+train_tasks:
+  # Maze task for training
+  - env_id: "maze"
+    max_turns_per_episode: 10
+    train_size: 512
+    inner_env_class: 'envs.maze_env_adapter.MazeEnvAdapter'
+    shapes: [[5,5],[6,6],[5,6],[5,7]]
+
+  # Rock Paper Scissors task for training
+  - env_id: "rockpaperscissors"
+    max_turns_per_episode: 5
+    train_size: 512
+    inner_env_class: 'envs.rps_env_adapter.RockPaperScissorsEnvAdapter'
+    min_dom: 0.6
+
+  # Minesweeper task for training
+  - env_id: "game:Minesweeper-v0-only-reveal"
+    max_turns_per_episode: 10
+    train_size: 512
+    inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
+
+  # GuessTheNumber task for training
+  - env_id: "game:GuessTheNumber-v0-hard"
+    max_turns_per_episode: 5
+    train_size: 512
+    inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
+
+  # Blackjack task for training
+  - env_id: "game:Blackjack-v0"
+    max_turns_per_episode: 4
+    train_size: 512
+    inner_env_class: 'envs.blackjack_env_adapter.BlackjackEnvAdapter'
+
+val_tasks:
+  # Mastermind task for validation
+  - env_id: "game:Mastermind-v0-easy"
+    max_turns_per_episode: 7
+    test_size: 128
+    inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
