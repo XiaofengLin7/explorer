@@ -49,6 +49,7 @@ train_tasks:
 val_tasks:
   - env_id: "maze"
     max_turns_per_episode: 10
+    min_turns: 8
     total_step_cap: 30
     test_size: 128
     inner_env_class: 'envs.maze_env_adapter.MazeEnvAdapter'

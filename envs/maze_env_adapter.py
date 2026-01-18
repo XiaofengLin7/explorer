@@ -37,7 +37,7 @@ class MazeGenerator:
             raise ValueError("shapes must be a list of (width, height) tuples, e.g. [(5,5),(6,6)]")
         self.shapes = shapes
 
-    def generate(self, seed: int) -> Tuple[np.ndarray, Tuple[int, int]]:
+    def generate(self, seed: int) -> Tuple[np.ndarray, Tuple[int, int], int]:
         """Generate a maze with many branching paths using improved algorithm."""
         random.seed(seed)
         np.random.seed(seed)
@@ -63,10 +63,10 @@ class MazeGenerator:
         self._ensure_connectivity(maze, init_position)
 
         # Place goal at farthest reachable position from start
-        goal_position = self._find_farthest_position(maze, init_position)
+        goal_position, shortest_path_len = self._find_farthest_position(maze, init_position)
         maze[goal_position[0], goal_position[1]] = -1
 
-        return maze, init_position
+        return maze, init_position, shortest_path_len
 
     def _create_branched_network(self, maze: np.ndarray, start_x: int, start_y: int) -> None:
         maze[start_x, start_y] = 0
@@ -266,7 +266,9 @@ class MazeGenerator:
             if 0 <= current_x < maze.shape[0] and 0 <= current_y < maze.shape[1]:
                 maze[current_x, current_y] = 0
 
-    def _find_farthest_position(self, maze: np.ndarray, start: Tuple[int, int]) -> Tuple[int, int]:
+    def _find_farthest_position(
+        self, maze: np.ndarray, start: Tuple[int, int]
+    ) -> Tuple[Tuple[int, int], int]:
         from collections import deque
 
         queue = deque([(start, 0)])
@@ -291,7 +293,7 @@ class MazeGenerator:
                     visited.add((new_x, new_y))
                     queue.append(((new_x, new_y), distance + 1))
 
-        return farthest_pos
+        return farthest_pos, max_distance
 
 
 class MazeEnvAdapter(BaseEnv):
@@ -317,6 +319,7 @@ class MazeEnvAdapter(BaseEnv):
 
         self.shapes = env_kwargs.get("shapes", [])
         self.max_turns = env_kwargs.get("max_turns", -1)
+        self.min_turns = env_kwargs.get("min_turns", self.max_turns)
 
         # Validate types/values to prevent silent bugs
         # normalize: list[list[int]] -> list[tuple[int,int]]
@@ -337,6 +340,7 @@ class MazeEnvAdapter(BaseEnv):
         self.map: Optional[np.ndarray] = None
         self.init_position: Optional[Tuple[int, int]] = None
         self.current_position: Optional[Tuple[int, int]] = None
+        self.shortest_path_len: Optional[int] = None
         self.current_turn = 0
         self.achieve_goal = False
 
@@ -382,7 +386,14 @@ class MazeEnvAdapter(BaseEnv):
         if seed is None:
             raise ValueError("Seed must be provided.")
 
-        self.map, self.init_position = self.generator.generate(seed)
+        max_tries = 1000
+        for _ in range(max_tries):
+            self.map, self.init_position, self.shortest_path_len = self.generator.generate(seed)
+            if self.min_turns <= self.shortest_path_len <= self.max_turns:
+                break
+            seed += 1
+        else:
+            raise ValueError(f"Failed to generate a maze within min_turns ({self.min_turns}) and max_turns ({self.max_turns}) after many attempts.")
 
         self.current_turn = 0
         self.current_position = self.init_position
