@@ -18,35 +18,28 @@
 #     - test_size: Number of validation examples to generate for this task (optional, default: 64)
 
 train_tasks:
-  # GuessTheNumber task for training
-  - env_id: "maze"
-    max_turns_per_episode: 10
-    total_step_cap: 30
-    train_size: 512
-    inner_env_class: 'envs.maze_env_adapter.MazeEnvAdapter'
-    shapes:  [[5,5],[6,6],[5,6],[5,7]]
-
-  # GuessTheNumber task for training
   - env_id: "rockpaperscissors"
     max_turns_per_episode: 5
     total_step_cap: 15
     train_size: 512
     inner_env_class: 'envs.rps_env_adapter.RockPaperScissorsEnvAdapter'
-    min_dom:  0.6
+    min_dom:  0.4
 
-
-  # Minesweeper task for training
   - env_id: "game:Minesweeper-v0-only-reveal"
+    max_turns_per_episode: 5
+    total_step_cap: 30
+    train_size: 512
+    inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
+
+  - env_id: "game:Hangman-v0-easy"
     max_turns_per_episode: 10
     total_step_cap: 30
     train_size: 512
     inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
     
-
-  # GuessTheNumber task for training
-  - env_id: "game:GuessTheNumber-v0-hard"
-    max_turns_per_episode: 5
-    total_step_cap: 15
+  - env_id: "game:Wordle-v0-hard"
+    max_turns_per_episode: 10
+    total_step_cap: 30
     train_size: 512
     inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
 
@@ -58,10 +51,16 @@ train_tasks:
     inner_env_class: 'envs.blackjack_env_adapter.BlackjackEnvAdapter'
 
 val_tasks:
-  # Mastermind task for validation
-  - env_id: "game:Mastermind-v0-easy"
-    max_turns_per_episode: 7
-    total_step_cap: 21
+  - env_id: "maze"
+    max_turns_per_episode: 10
+    total_step_cap: 30
+    test_size: 128
+    inner_env_class: 'envs.maze_env_adapter.MazeEnvAdapter'
+    shapes:  [[5,5],[6,6],[5,6],[5,7]]
+
+  - env_id: "game:Mastermind-v0-hard"
+    max_turns_per_episode: 25
+    total_step_cap: 75
     test_size: 128
     inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
 
