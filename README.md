@@ -89,16 +89,25 @@ bash scripts/train_gem_multi_episode_env.sh
 
 The framework supports training on multiple GEM tasks simultaneously, with each task having its own `max_turns_per_episode` and `total_step_cap` configuration. You can also specify different tasks for training and validation.
 
+#### Training Modes
+
+The framework provides two multi-task training modes:
+
+| Mode | Training Script | Training Env | Validation Env | Use Case |
+|------|-----------------|--------------|----------------|----------|
+| **Multi-Episode** | `train_gem_multi_task_env.sh` | MultiEpisodeEnv | MultiEpisodeEnv | Model gets multiple attempts per task during both training and validation |
+| **Single-Episode** | `train_multi_task_single_episode.sh` | SingleEpisodeEnv | MultiEpisodeEnv | Model trains on single attempts but validates with multiple attempts |
+
 #### Configuration File Format
 
-Create a YAML configuration file (e.g., `configs/multi_task_gem_config.yaml`) with separate `train_tasks` and `val_tasks` sections.
-
+Create a YAML configuration file with separate `train_tasks` and `val_tasks` sections.
 
 **Configuration Fields:**
 
 - **`env_id`**: GEM environment identifier (required)
 - **`max_turns_per_episode`**: Maximum number of turns allowed per episode for this task (required)
-- **`total_step_cap`**: Maximum total steps across all episodes for this task (required)
+- **`total_step_cap`**: Maximum total steps across all episodes for this task (required for multi-episode, optional for single-episode training tasks)
+- **`inner_env_class`**: The inner environment adapter class to use (required)
 - **`train_size`**: Number of training examples to generate (optional, default: 512) - only for `train_tasks`
 - **`test_size`**: Number of validation examples to generate (optional, default: 64) - only for `val_tasks`
 
@@ -110,13 +119,52 @@ Create a YAML configuration file (e.g., `configs/multi_task_gem_config.yaml`) wi
   - Training metrics: `traj/{env_id}/{metric}_mean/min/max`
   - Validation metrics: `val/{env_id}/{metric}`
 
-#### Running Multi-Task Training
+#### Running Multi-Episode Training
 
-Use the multi-task training script:
+Multi-episode training gives the model multiple attempts (episodes) per task within each trajectory. Use this when you want the model to learn from repeated attempts.
 
 ```bash
+# Uses configs/multi_task_multi_episode_config.yaml by default
 bash scripts/train_gem_multi_task_env.sh
+
+# Or specify a custom config
+TASKS_CONFIG=configs/my_config.yaml bash scripts/train_gem_multi_task_env.sh
 ```
+
+#### Running Single-Episode Training
+
+Single-episode training trains on one attempt per task but validates with multiple attempts. This is useful when you want efficient training but thorough evaluation.
+
+```bash
+# Uses configs/multi_task_single_episode_config.yaml by default
+bash scripts/train_multi_task_single_episode.sh
+
+# Or specify a custom config
+TASKS_CONFIG=configs/my_config.yaml bash scripts/train_multi_task_single_episode.sh
+```
+
+**Single-Episode Config Example** (`configs/multi_task_single_episode_config.yaml`):
+
+```yaml
+train_tasks:
+  - env_id: "game:Minesweeper-v0-only-reveal"
+    max_turns_per_episode: 5
+    train_size: 512
+    inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
+
+val_tasks:
+  # Validation uses MultiEpisodeEnv, so total_step_cap is needed
+  - env_id: "game:Mastermind-v0-hard"
+    max_turns_per_episode: 25
+    total_step_cap: 75  # 3 episodes * 25 turns each
+    test_size: 128
+    inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
+```
+
+**Logged Metrics:**
+- `episode/success_rate`: 1.0 if episode succeeded, 0.0 otherwise
+- `episode/episode_length`: Number of steps taken
+- `episode/truncated`: 1.0 if trajectory was terminated early by execution engine
 
 
 
