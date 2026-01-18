@@ -6,6 +6,7 @@ registers them via DatasetRegistry so AgentTrainer can load them.
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -142,13 +143,46 @@ def prepare_multi_task_gem_data(
     if not val_tasks:
         raise ValueError("val_tasks must be specified in config")
 
-    rng = np.random.default_rng(seed)
+    def get_task_specific_seed(task_cfg: Dict[str, Any], global_seed: int) -> int:
+        """Generate a deterministic seed for a task based on its configuration.
+        
+        This ensures that identical task configurations will always generate the same
+        seeds, regardless of what other tasks are in the config or their order.
+        
+        Args:
+            task_cfg: Task configuration dictionary.
+            global_seed: Global seed for reproducibility.
+            
+        Returns:
+            A deterministic seed integer for this specific task configuration.
+        """
+        # Create a deterministic representation of the task config
+        # Exclude size parameters (train_size/test_size) as they don't affect task identity
+        task_params = {
+            k: v for k, v in task_cfg.items() 
+            if k not in ["train_size", "test_size"]
+        }
+        
+        # Sort items to ensure consistent hashing regardless of dict order
+        sorted_items = sorted(task_params.items())
+        
+        # Create a hash from the task parameters and global seed
+        # Use a stable hash function (SHA256) and convert to int
+        param_str = str(sorted_items) + str(global_seed)
+        hash_bytes = hashlib.sha256(param_str.encode()).digest()
+        # Convert first 8 bytes to int (ensures positive value)
+        task_seed = int.from_bytes(hash_bytes[:8], byteorder='big') % (2**31)
+        
+        return task_seed
 
     def process_task_list(task_list: List[Dict[str, Any]], is_train: bool) -> List[Dict[str, Any]]:
         """Process a list of task configs and return task dictionaries.
         
         All parameters from task_cfg are copied to the task_dict, except:
         - train_size / test_size (used only to determine number of tasks to generate)
+        
+        Each task gets its own deterministic RNG based on its configuration, ensuring
+        that identical task configs generate the same seeds regardless of other tasks.
         """
         result = []
         for task_cfg in task_list:
@@ -161,8 +195,13 @@ def prepare_multi_task_gem_data(
                 raise ValueError(f"env_id is required in task config: {task_cfg}")
             env_id = task_cfg["env_id"]
 
-            # Generate seeds for this task
-            seeds = rng.integers(0, 1_000_000, size=size).tolist()
+            # Generate a deterministic seed for this specific task configuration
+            task_specific_seed = get_task_specific_seed(task_cfg, seed)
+            
+            # Create a task-specific RNG to ensure deterministic seed generation
+            # This ensures identical task configs always generate the same seeds
+            task_rng = np.random.default_rng(task_specific_seed)
+            seeds = task_rng.integers(0, 1_000_000, size=size).tolist()
 
             def task_fn(idx: int, task_seed: int) -> dict:
                 """Create a task dictionary with all task-specific configuration.
