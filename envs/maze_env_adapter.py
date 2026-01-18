@@ -319,7 +319,8 @@ class MazeEnvAdapter(BaseEnv):
 
         self.shapes = env_kwargs.get("shapes", [])
         self.max_turns = env_kwargs.get("max_turns", -1)
-        self.min_turns = env_kwargs.get("min_turns", self.max_turns)
+        self.shortest_path_min_length = env_kwargs.get("shortest_path_min_length", 8)
+        self.shortest_path_max_length = env_kwargs.get("shortest_path_max_length", 8)
 
         # Validate types/values to prevent silent bugs
         # normalize: list[list[int]] -> list[tuple[int,int]]
@@ -333,7 +334,10 @@ class MazeEnvAdapter(BaseEnv):
             raise ValueError("env_kwargs['shapes'] must be a list of (width, height) tuples, e.g. [(5,5),(6,6)]")
         if not isinstance(self.max_turns, int) or self.max_turns <= 0:
             raise ValueError("env_kwargs['max_turns'] must be a positive int")
-
+        if not isinstance(self.shortest_path_min_length, int) or self.shortest_path_min_length <= 0:
+            raise ValueError("env_kwargs['shortest_path_min_length'] must be a positive int")
+        if not isinstance(self.shortest_path_max_length, int) or self.shortest_path_max_length <= 0:
+            raise ValueError("env_kwargs['shortest_path_max_length'] must be a positive int")
         # Generator (optional injection; if not provided, create from shapes)
         self.generator: MazeGenerator = env_kwargs.get("maze_generator") or MazeGenerator(self.shapes)
 
@@ -389,11 +393,11 @@ class MazeEnvAdapter(BaseEnv):
         max_tries = 1000
         for _ in range(max_tries):
             self.map, self.init_position, self.shortest_path_len = self.generator.generate(seed)
-            if self.min_turns <= self.shortest_path_len <= self.max_turns:
+            if self.shortest_path_min_length <= self.shortest_path_len <= self.shortest_path_max_length:
                 break
             seed += 1
         else:
-            raise ValueError(f"Failed to generate a maze within min_turns ({self.min_turns}) and max_turns ({self.max_turns}) after many attempts.")
+            raise ValueError(f"Failed to generate a maze within shortest_path_min_length ({self.shortest_path_min_length}) and shortest_path_max_length ({self.shortest_path_max_length}) after many attempts.")
 
         self.current_turn = 0
         self.current_position = self.init_position

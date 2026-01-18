@@ -49,11 +49,12 @@ train_tasks:
 val_tasks:
   - env_id: "maze"
     max_turns_per_episode: 10
-    min_turns: 8
+    shortest_path_max_length: 8
+    shortest_path_min_length: 8
     total_step_cap: 30
     test_size: 128
     inner_env_class: 'envs.maze_env_adapter.MazeEnvAdapter'
-    shapes:  [[5,5],[6,6],[5,6],[5,7]]
+    shapes:  [[6,6],[5,6],[5,7],[6,5]]  
 
   - env_id: "game:Mastermind-v0-hard"
     max_turns_per_episode: 25
