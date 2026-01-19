@@ -2,9 +2,7 @@
 """Quick demo runner for the BlackjackEnvAdapter with a fixed action sequence.
 
 Usage:
-    python scripts/demo_blackjack_env.py \
-        --seed 123 \
-        --actions "hit 0" "hit 5" "stand"
+    python scripts/demo_blackjack_env.py --seed 44 --actions "hit 1" "hit 1" "stand"
 
 If no actions are provided, a default sequence is used. The script prints the
 observation text (including the rules prompt on reset), rewards, and done flags
