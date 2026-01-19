@@ -16,7 +16,7 @@ if [ ! -f "$TASKS_CONFIG" ]; then
     exit 1
 fi
 
-MODEL_PATH=${MODEL_PATH:-Qwen/Qwen3-1.7B}
+MODEL_PATH=${MODEL_PATH:-Qwen/Qwen3-4B}
 
 # Extract model name (last part after /)
 MODEL_NAME=$(basename "$MODEL_PATH" | tr '[:upper:]' '[:lower:]')

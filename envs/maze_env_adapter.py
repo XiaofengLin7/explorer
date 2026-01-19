@@ -386,6 +386,24 @@ class MazeEnvAdapter(BaseEnv):
             f"Around you, up leads to {up}, down leads to {down}, left leads to {left}, and right leads to {right}. "
         )
 
+    def get_state_id(self) -> Tuple[int, int]:
+        """Return a hashable identifier for the current maze state.
+
+        This is intentionally lightweight and stable across steps so wrappers
+        (e.g., `MultiEpisodeEnv`) can track unique visited states over an entire
+        trajectory. For the maze, the agent position uniquely identifies the
+        state for visitation counting.
+
+        Returns:
+            A tuple (x, y) representing the agent's current position.
+
+        Raises:
+            ValueError: If the environment has not been reset yet.
+        """
+        if self.current_position is None:
+            raise ValueError("Environment not initialized. Please call reset() first.")
+        return self.current_position
+
     def reset(self, seed: int | None = None, task: dict | None = None) -> tuple[str, Dict[str, Any]]:
         if seed is None:
             raise ValueError("Seed must be provided.")
@@ -417,6 +435,7 @@ class MazeEnvAdapter(BaseEnv):
             "max_turns": self.max_turns,
             "terminated": False,
             "truncated": False,
+            "state_id": self.get_state_id(),
         }
         return obs, info
 
@@ -484,6 +503,7 @@ class MazeEnvAdapter(BaseEnv):
             "terminated": terminated,
             "truncated": False,
             "raw_reward": float(reward),
+            "state_id": self.get_state_id(),
         }
 
         return obs, float(reward), terminated, info
