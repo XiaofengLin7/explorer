@@ -100,6 +100,16 @@ class BlackjackEnv:
             raise RuntimeError("Environment is done. Call reset() before step().")
 
         normalized_action = self._normalize_action(action)
+        # If the requested hit index is no longer available, fall back to stand.
+        if normalized_action.get("action") == "hit":
+            idx = normalized_action.get("card_index")
+            if (
+                idx is None
+                or not self._available_indices
+                or idx not in self._available_indices
+            ):
+                normalized_action = {"action": "stand"}
+
         self.turn += 1
         truncated = self.turn >= self.max_turns
 
