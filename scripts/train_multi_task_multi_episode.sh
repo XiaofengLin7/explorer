@@ -30,7 +30,7 @@ python scripts/train_multi_episode.py \
     data.train_batch_size=32 \
     data.val_batch_size=128 \
     data.max_prompt_length=1024 \
-    data.max_response_length=16384 \
+    data.max_response_length=31744 \
     +data.tasks_config_path="$TASKS_CONFIG" \
     +rllm.env.env_args.success_reward=1.0 \
     +rllm.env.env_args.episode_header="New episode begins." \
@@ -76,7 +76,7 @@ python scripts/train_multi_episode.py \
     trainer.logger=['console','wandb'] \
     trainer.project_name='rllm-agent' \
     trainer.experiment_name="$EXPERIMENT_NAME" \
-    trainer.val_before_train=False \
+    trainer.val_before_train=True \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=1000 \

@@ -26,7 +26,7 @@ train_tasks:
     min_dom:  0.4
 
   - env_id: "game:Minesweeper-v0-only-reveal"
-    max_turns_per_episode: 5
+    max_turns_per_episode: 10
     train_size: 512
     inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
 
@@ -48,16 +48,19 @@ train_tasks:
 
 val_tasks:
   - env_id: "maze"
-    max_turns_per_episode: 10
-    shortest_path_max_length: 8
-    shortest_path_min_length: 8
-    total_step_cap: 30
-    test_size: 128
+    max_turns_per_episode: 9
+    shortest_path_max_length: 6
+    shortest_path_min_length: 5
+    total_step_cap: 27
+    test_size: 64
     inner_env_class: 'envs.maze_env_adapter.MazeEnvAdapter'
     shapes:  [[6,6],[5,6],[5,7],[6,5]]  
 
-  - env_id: "game:Mastermind-v0-hard"
-    max_turns_per_episode: 25
-    total_step_cap: 75
-    test_size: 128
+  - env_id: "game:Mastermind-v0-random"
+    max_turns_per_episode: 6
+    total_step_cap: 18
+    code_length: 3
+    num_numbers: 6
+    duplicate_numbers: False
+    test_size: 64
     inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'

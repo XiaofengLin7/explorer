@@ -38,7 +38,7 @@ def _default_single_episode_prompt() -> str:
     return (
         "You are solving a task in a single episode. "
         "Analyze the situation carefully and take the best actions to succeed. "
-        "Respond with actions inside \\boxed{} each turn."
+        "Think briefly and respond with actions inside \\boxed{} each turn. Overlong responses will be penalized."
     )
 
 
