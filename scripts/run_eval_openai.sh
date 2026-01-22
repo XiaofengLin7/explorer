@@ -11,7 +11,7 @@ BASE_URL=${BASE_URL:-https://api.openai.com/v1}
 # API_KEY defaults to OPENAI_API_KEY environment variable
 
 # Task configuration
-CONFIG=${CONFIG:-configs/multi_task_multi_episode_config.yaml}
+CONFIG=${CONFIG:-configs/eval_multi_episode_config.yaml}
 SEED=${SEED:-42}
 N_ROLLOUTS=${N_ROLLOUTS:-1}
 
@@ -21,13 +21,13 @@ if [ ! -f "$CONFIG" ]; then
 fi
 
 # Execution configuration
-N_PARALLEL=${N_PARALLEL:-32}
-TRAJECTORY_TIMEOUT=${TRAJECTORY_TIMEOUT:-600}
+N_PARALLEL=${N_PARALLEL:-256}
+TRAJECTORY_TIMEOUT=${TRAJECTORY_TIMEOUT:-6000}
 
 # Sampling parameters
 TEMPERATURE=${TEMPERATURE:-0.6}
 TOP_P=${TOP_P:-1}
-MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-4096}
+MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-16384}
 
 # Output configuration
 OUTPUT_DIR=${OUTPUT_DIR:-results}

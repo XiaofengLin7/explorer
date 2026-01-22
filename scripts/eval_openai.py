@@ -7,7 +7,7 @@ per-episode metrics and aggregates them by task type.
 
 Example usage:
     python scripts/eval_openai.py \
-        --config configs/multi_task_multi_episode_config.yaml \
+        --config configs/eval_multi_episode_config.yaml \
         --model gpt-4o-mini \
         --n-parallel 32 \
         --output results/eval_gpt4o_mini.json
@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 from collections import defaultdict
 from datetime import datetime
@@ -28,7 +29,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import yaml
-
+from transformers import AutoTokenizer
 # Add repo root to path for imports
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -358,16 +359,12 @@ def load_eval_tasks(
 
 
 def get_default_system_prompt() -> str:
-    """Get the default system prompt for multi-episode evaluation.
-
-    Returns:
-        System prompt string.
-    """
+    """System prompt that reminds the policy about multi-episode control."""
     return (
         "You are solving the same task across multiple episodes with a fixed total step budget. "
         "Each episode resets the environment but keeps the task identical. "
         "Leverage information gathered from earlier episodes to succeed faster. "
-        "Respond with actions inside \\boxed{} each turn."
+        "Think briefly and respond with actions inside \\boxed{} each turn. Overlong responses will be penalized."
     )
 
 
@@ -401,18 +398,30 @@ def create_engine(
             "top_p": args.top_p,
         },
     }
-
+    # dummy tokenizer for openai engine
+    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-4B")
+    
+    # Create dummy config with OmegaConf for attribute access (required by AgentExecutionEngine)
+    from omegaconf import OmegaConf
+    config = OmegaConf.create({
+        "rllm": {
+            "filter_token_mismatch": False,
+            "disable_thinking": False,
+        }
+    })
     engine = MultiEpisodeEvalEngine(
         agent_class=GEMTextAgent,
         env_class=MultiEpisodeEnv,
+        config=config,
         agent_args=agent_args,
         env_args=env_args,
         engine_name="openai",
         rollout_engine_args=rollout_engine_args,
+        tokenizer=tokenizer,
         n_parallel_agents=args.n_parallel,
         max_steps=max_steps,
         max_response_length=args.max_response_length,
-        max_prompt_length=8192,  # Generous prompt length for multi-turn
+        max_prompt_length=1024,  # Generous prompt length for multi-turn
         trajectory_timeout=args.trajectory_timeout,
         sampling_params={
             "temperature": args.temperature,
@@ -573,6 +582,19 @@ def log_chat_completions(
         }
         source_chats[data_source].append(chat_entry)
 
+    # Custom encoder to handle numpy types
+    class NumpyEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            if isinstance(obj, np.floating):
+                return float(obj)
+            if isinstance(obj, np.bool_):
+                return bool(obj)
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            return super().default(obj)
+
     # Write JSONL files
     for data_source, chats in source_chats.items():
         filename = sanitize_filename(data_source) + ".jsonl"
@@ -580,7 +602,7 @@ def log_chat_completions(
 
         with open(filepath, "w") as f:
             for chat in chats:
-                f.write(json.dumps(chat, ensure_ascii=False) + "\n")
+                f.write(json.dumps(chat, ensure_ascii=False, cls=NumpyEncoder) + "\n")
 
         logger.info(f"Saved {len(chats)} chat logs to {filepath}")
 
@@ -617,8 +639,20 @@ async def run_evaluation(
         # Convert flattened keys back to original format for consistency
         metrics = {}
         for key, value in raw_metrics.items():
-            # Convert "episode_success_rate" back to "episode/success_rate"
-            original_key = key.replace("_", "/", 1) if key.startswith("episode") else key
+            # Handle different episode metric patterns:
+            # - "episode_success_rate" -> "episode/success_rate"
+            # - "episode_1_steps" -> "episode_1/steps"
+            # - "episode_1_success_rate" -> "episode_1/success_rate"
+            if key.startswith("episode_"):
+                # Match "episode_N_..." pattern (per-episode metrics)
+                match = re.match(r"^(episode_\d+)_(.+)$", key)
+                if match:
+                    original_key = f"{match.group(1)}/{match.group(2)}"
+                else:
+                    # Match "episode_..." pattern (aggregate metrics)
+                    original_key = key.replace("_", "/", 1)
+            else:
+                original_key = key
             metrics[original_key] = value
 
         # Determine correctness from metrics or trajectory reward
@@ -707,9 +741,22 @@ def save_results(
         "trajectories": trajectory_summaries,
     }
 
+    # Custom encoder to handle numpy types
+    class NumpyEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, np.integer):
+                return int(obj)
+            if isinstance(obj, np.floating):
+                return float(obj)
+            if isinstance(obj, np.bool_):
+                return bool(obj)
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            return super().default(obj)
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:
-        json.dump(output, f, indent=2, ensure_ascii=False)
+        json.dump(output, f, indent=2, ensure_ascii=False, cls=NumpyEncoder)
 
     logger.info(f"Results saved to {output_path}")
 
@@ -778,10 +825,8 @@ async def main() -> None:
     logger.info(f"Max total step cap: {max_total_step_cap}")
 
     # Build env_args from config (base configuration)
-    # Per-task configuration comes from task dict via from_dict
+    # Per-task configuration (including inner_env_class) comes from task dict via from_dict
     env_args: Dict[str, Any] = {
-        "inner_env_class": "envs.gem_env_adapter.GEMEnvAdapter",  # Default
-        "total_step_cap": max_total_step_cap,
         "success_reward": 1.0,
         "episode_header": "New episode begins.",
     }

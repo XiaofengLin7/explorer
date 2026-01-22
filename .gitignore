@@ -5,3 +5,4 @@ __pycache__/
 wandb/
 checkpoints/
 MAINTAINING_CUSTOM_CHANGES.md
+results/
