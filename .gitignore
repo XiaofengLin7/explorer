@@ -4,5 +4,6 @@ __pycache__/
 .pytest_cache/
 wandb/
 checkpoints/
-.nfs*
 MAINTAINING_CUSTOM_CHANGES.md
+results/
+.nfs*
