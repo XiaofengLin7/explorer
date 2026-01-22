@@ -9,7 +9,7 @@ continues until the total step cap is reached.
 from __future__ import annotations
 
 import importlib
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Set, Tuple, Type
 
 from rllm.agents.agent import Action  # type: ignore
 from rllm.environments.base.base_env import BaseEnv  # type: ignore
@@ -78,6 +78,9 @@ class MultiEpisodeEnv(BaseEnv):
         self._episode_step: int = 0
         self._episode_successes: List[bool] = []
         self._episode_lengths: List[int] = []
+        # Maze-only: track unique visited positions across the full trajectory.
+        # This is intentionally scoped to Maze to keep this wrapper simple.
+        self._maze_visited_positions: Optional[Set[Tuple[int, int]]] = None
         self._task: Optional[dict] = None
         self._seed: Optional[int] = None
         # Store the initial task from dataset (extracted in from_dict)
@@ -124,6 +127,7 @@ class MultiEpisodeEnv(BaseEnv):
         self._episode_step = 0
         self._episode_successes = []
         self._episode_lengths = []
+        self._maze_visited_positions = set() if self._is_maze_inner_env() else None
         # Use provided task, or fall back to initial task from dataset
         self._task = task if task is not None else self._initial_task
         self._seed = seed if seed is not None else self._seed
@@ -132,6 +136,7 @@ class MultiEpisodeEnv(BaseEnv):
 
         # Reset inner environment
         observation, info = self._reset_inner_env()
+        self._maybe_track_maze_state()
 
         # Format observation with episode header
         observation = self._format_observation(observation, self._episode_index)
@@ -170,6 +175,7 @@ class MultiEpisodeEnv(BaseEnv):
 
             # Start the next episode
             observation, info = self._reset_inner_env()
+            self._maybe_track_maze_state()
             self._episode_index += 1
             self._episode_step = 0
             observation = self._format_observation(observation, self._episode_index)
@@ -189,6 +195,7 @@ class MultiEpisodeEnv(BaseEnv):
 
         # Execute step in inner environment
         observation, env_reward, inner_done, info = self.inner_env.step(raw_action)
+        self._maybe_track_maze_state()
 
         self._total_steps += 1
         self._episode_step += 1
@@ -232,6 +239,7 @@ class MultiEpisodeEnv(BaseEnv):
 
                     # Reset for next episode (same task/seed) and bump index.
                     next_obs, reset_info = self._reset_inner_env()
+                    self._maybe_track_maze_state()
                     self._episode_index += 1
                     self._episode_step = 0
                     next_obs = self._format_observation(next_obs, self._episode_index)
@@ -357,6 +365,8 @@ class MultiEpisodeEnv(BaseEnv):
                 "episode/total_steps": self.total_step_cap,
                 "episode/truncated": 1.0,
             }
+            if self._maze_visited_positions is not None:
+                metrics["maze/unique_visited_states"] = float(len(self._maze_visited_positions))
             
             for idx in range(1, minimum_episodes + 1):
                 if idx <= len(self._episode_successes):
@@ -381,6 +391,8 @@ class MultiEpisodeEnv(BaseEnv):
             "episode/total_steps": self._total_steps,
             "episode/truncated": 0.0,
         }
+        if self._maze_visited_positions is not None:
+            metrics["maze/unique_visited_states"] = float(len(self._maze_visited_positions))
 
         for idx in range(1, minimum_episodes + 1):
             if idx <= len(successes):
@@ -412,7 +424,7 @@ class MultiEpisodeEnv(BaseEnv):
                 - step_cap: The configured step cap
                 - episode_lengths: List of step counts per episode
         """
-        return {
+        info: Dict[str, Any] = {
             "multi_episode": True,
             "episode_successes": list(self._episode_successes),
             "success_count": sum(self._episode_successes),
@@ -421,6 +433,28 @@ class MultiEpisodeEnv(BaseEnv):
             "step_cap": self.total_step_cap,
             "episode_lengths": list(self._episode_lengths),
         }
+        if self._maze_visited_positions is not None:
+            info["unique_visited_states"] = len(self._maze_visited_positions)
+        return info
+
+    def _is_maze_inner_env(self) -> bool:
+        """Return True iff the wrapped env is `MazeEnvAdapter`."""
+        try:
+            from envs.maze_env_adapter import MazeEnvAdapter
+        except Exception:
+            return False
+        return isinstance(self.inner_env, MazeEnvAdapter)
+
+    def _maybe_track_maze_state(self) -> None:
+        """Track maze position if and only if inner env is Maze."""
+        if self._maze_visited_positions is None:
+            return
+        try:
+            state_id = self.inner_env.get_state_id()
+            self._maze_visited_positions.add(state_id)
+        except Exception:
+            # Tracking must never break the main env loop.
+            return
 
     @property
     def is_correct(self) -> bool:

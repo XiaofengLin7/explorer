@@ -1,46 +1,47 @@
 #!/bin/bash
 set -x
 
-# GPU assignment: use 4 GPUs (adjust if vLLM is using one; e.g., skip GPU0 if needed).
+# Default GPU setup (override as needed, e.g., export CUDA_VISIBLE_DEVICES=0,1)
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,3}
 export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
 export VLLM_USE_V1=1
 
-# Multi-task configuration: path to YAML config file (required)
-TASKS_CONFIG=${TASKS_CONFIG:-configs/multi_task_multi_episode_config.yaml}
-
-if [ ! -f "$TASKS_CONFIG" ]; then
-    echo "Error: Tasks config file not found: $TASKS_CONFIG"
-    echo "Please set TASKS_CONFIG environment variable to point to a valid YAML config file."
-    exit 1
-fi
-
+# Environment and experiment defaults
+TOTAL_STEP_CAP=${TOTAL_STEP_CAP:-21}
+MAX_TURNS_PER_EPISODE=${MAX_TURNS_PER_EPISODE:-7}
+GRID_N=${GRID_N:-4}
+GRID_M=${GRID_M:-4}
 MODEL_PATH=${MODEL_PATH:-Qwen/Qwen3-4B}
 
-# Extract model name (last part after /)
+# Names for logging
 MODEL_NAME=$(basename "$MODEL_PATH" | tr '[:upper:]' '[:lower:]')
+EXPERIMENT_NAME="multi-episode-train-grid-${MODEL_NAME}"
 
-# Construct experiment name from config file name
-CONFIG_NAME=$(basename "$TASKS_CONFIG" .yaml | tr '[:upper:]' '[:lower:]' | tr '_' '-')
-EXPERIMENT_NAME="gem-multi-task-${CONFIG_NAME}-${MODEL_NAME}"
-
-# Multi-episode via environment wrapper (uses AgentExecutionEngine instead of workflow)
+# Eval-only run for Grid via the multi-episode environment wrapper.
+# You can override any of these hydra args on the command line after "$@".
 python scripts/train_multi_episode.py \
     data.train_batch_size=32 \
     data.val_batch_size=128 \
     data.max_prompt_length=1024 \
-    data.max_response_length=31744 \
-    +data.tasks_config_path="$TASKS_CONFIG" \
+    data.max_response_length=32768 \
+    +rllm.env.env_args.inner_env_class=envs.grid_env_adapter.GridEnvAdapter \
+    +rllm.env.env_args.inner_env_kwargs.env_id=game:Grid-v0 \
+    +rllm.env.env_args.inner_env_kwargs.n=$GRID_N \
+    +rllm.env.env_args.inner_env_kwargs.m=$GRID_M \
+    +rllm.env.env_args.inner_env_kwargs.max_turns=$MAX_TURNS_PER_EPISODE \
+    +rllm.env.env_args.total_step_cap=$TOTAL_STEP_CAP \
     +rllm.env.env_args.success_reward=1.0 \
+    rllm.agent.max_steps=$TOTAL_STEP_CAP \
+    rllm.disable_thinking=False \
     +rllm.env.env_args.episode_header="New episode begins." \
-    rllm.agent.max_steps=50 \
-    actor_rollout_ref.model.path="$MODEL_PATH" \
+    +rllm.env.env_args.enable_reflection=False \
+    actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.loss_agg_mode=seq-mean-token-mean \
     actor_rollout_ref.actor.use_dynamic_bsz=True \
-    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=32768 \
+    actor_rollout_ref.actor.ppo_max_token_len_per_gpu=33792 \
     actor_rollout_ref.actor.ppo_mini_batch_size=64 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
@@ -74,14 +75,13 @@ python scripts/train_multi_episode.py \
     rllm.stepwise_advantage.enable=False \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
-    trainer.project_name='rllm-agent' \
+    trainer.project_name='grid-env' \
     trainer.experiment_name="$EXPERIMENT_NAME" \
     trainer.val_before_train=True \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
-    trainer.save_freq=1000 \
+    trainer.save_freq=100000 \
     trainer.test_freq=10 \
     trainer.default_hdfs_dir=null \
-    trainer.total_epochs=10 \
+    trainer.total_epochs=0 \
     "$@"
-

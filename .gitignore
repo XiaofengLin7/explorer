@@ -6,3 +6,4 @@ wandb/
 checkpoints/
 MAINTAINING_CUSTOM_CHANGES.md
 results/
+.nfs*

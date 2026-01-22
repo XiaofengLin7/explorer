@@ -26,8 +26,8 @@ train_tasks:
     min_dom:  0.4
 
   - env_id: "game:Minesweeper-v0-only-reveal"
-    max_turns_per_episode: 5
-    total_step_cap: 30
+    max_turns_per_episode: 8
+    total_step_cap: 24
     train_size: 512
     inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
 
@@ -52,19 +52,30 @@ train_tasks:
 
 val_tasks:
   - env_id: "maze"
-    max_turns_per_episode: 10
+    max_turns_per_episode: 9
     shortest_path_max_length: 8
-    shortest_path_min_length: 8
-    total_step_cap: 30
-    test_size: 128
+    shortest_path_min_length: 7
+    total_step_cap: 27
+    test_size: 256
     inner_env_class: 'envs.maze_env_adapter.MazeEnvAdapter'
-    shapes:  [[6,6],[5,6],[5,7],[6,5]]  
+    shapes:  [[6,6],[7,6],[7,7],[6,7]]  
 
-  - env_id: "game:Mastermind-v0-hard"
-    max_turns_per_episode: 25
-    total_step_cap: 75
-    test_size: 128
+  - env_id: "game:Mastermind-v0-random"
+    max_turns_per_episode: 3
+    total_step_cap: 9
+    code_length: 3
+    num_numbers: 6
+    duplicate_numbers: False
+    test_size: 256
     inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
+
+  - env_id: "grid"
+    max_turns_per_episode: 9
+    total_step_cap: 27
+    test_size: 256
+    inner_env_class: 'envs.grid_env_adapter.GridEnvAdapter'
+    n: 4
+    m: 4
 
   # # You can also validate on tasks you trained on
   # - env_id: "game:Minesweeper-v0-only-reveal"
