@@ -11,9 +11,10 @@ BASE_URL=${BASE_URL:-https://api.openai.com/v1}
 # API_KEY defaults to OPENAI_API_KEY environment variable
 
 # Task configuration
-CONFIG=${CONFIG:-configs/eval_multi_episode_config.yaml}
+CONFIG=${CONFIG:-configs/eval_config.yaml}
 SEED=${SEED:-42}
 N_ROLLOUTS=${N_ROLLOUTS:-1}
+ENV_MODE=${ENV_MODE:-single}
 
 if [ ! -f "$CONFIG" ]; then
     echo "Error: Config file not found: $CONFIG"
@@ -51,6 +52,7 @@ python scripts/eval_openai.py \
     --trajectory-timeout "$TRAJECTORY_TIMEOUT" \
     --seed "$SEED" \
     --n-rollouts "$N_ROLLOUTS" \
+    --env-mode "$ENV_MODE" \
     --output "$OUTPUT" \
     --log-chat-completions \
     "$@"

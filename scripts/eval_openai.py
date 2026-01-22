@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Evaluate OpenAI models on multi-episode environments.
+"""Evaluate OpenAI models on multi- or single-episode environments.
 
 This script uses the rLLM AgentExecutionEngine to evaluate OpenAI models
-(or OpenAI-compatible APIs) on multi-episode game environments. It collects
-per-episode metrics and aggregates them by task type.
+(or OpenAI-compatible APIs) on multi-episode or single-episode game environments.
+It collects per-episode metrics and aggregates them by task type.
 
 Example usage:
     python scripts/eval_openai.py \
-        --config configs/eval_multi_episode_config.yaml \
+        --config configs/eval_config.yaml \
         --model gpt-4o-mini \
         --n-parallel 32 \
         --output results/eval_gpt4o_mini.json
@@ -37,12 +37,13 @@ if str(REPO_ROOT) not in sys.path:
 
 from agents.gem_text_agent import GEMTextAgent  # noqa: E402
 from envs.multi_episode_env import MultiEpisodeEnv  # noqa: E402
+from envs.single_episode_env import SingleEpisodeEnv  # noqa: E402
 from trainers.multi_episode_trainer import (  # noqa: E402
     MultiEpisodeAsyncAgentExecutionEngine,
 )
 
 
-class MultiEpisodeEvalEngine(MultiEpisodeAsyncAgentExecutionEngine):
+class EvalEngine(MultiEpisodeAsyncAgentExecutionEngine):
     """Execution engine for evaluation using Token mode.
 
     Extends MultiEpisodeAsyncAgentExecutionEngine to use Token mode by default,
@@ -124,7 +125,7 @@ def parse_args() -> argparse.Namespace:
         Parsed arguments namespace.
     """
     parser = argparse.ArgumentParser(
-        description="Evaluate OpenAI models on multi-episode environments.",
+        description="Evaluate OpenAI models on multi- or single-episode environments.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -140,6 +141,13 @@ def parse_args() -> argparse.Namespace:
         type=str,
         required=True,
         help="OpenAI model name (e.g., gpt-4o-mini, gpt-4o, gpt-3.5-turbo).",
+    )
+    parser.add_argument(
+        "--env-mode",
+        type=str,
+        default="multi",
+        choices=["multi", "single"],
+        help="Evaluation mode: multi-episode or single-episode environment wrapper.",
     )
 
     # Optional arguments
@@ -358,13 +366,20 @@ def load_eval_tasks(
     return all_tasks, config
 
 
-def get_default_system_prompt() -> str:
-    """System prompt that reminds the policy about multi-episode control."""
+def get_default_system_prompt(env_mode: str) -> str:
+    """Return a default system prompt for the selected evaluation mode."""
+    if env_mode == "single":
+        return (
+            "You are solving a task in a single episode. "
+            "Analyze the situation carefully and take the best actions to succeed. "
+            "Think briefly and respond with actions inside \\boxed{} each turn. Overlong responses will be penalized."
+        )
     return (
         "You are solving the same task across multiple episodes with a fixed total step budget. "
         "Each episode resets the environment but keeps the task identical. "
         "Leverage information gathered from earlier episodes to succeed faster. "
-        "Think briefly and respond with actions inside \\boxed{} each turn. Overlong responses will be penalized."
+        "Think briefly and respond with actions inside \\boxed{} each turn. "
+        "Overlong responses will be penalized."
     )
 
 
@@ -373,21 +388,23 @@ def create_engine(
     max_steps: int,
     env_args: Dict[str, Any],
     agent_args: Dict[str, Any],
-) -> MultiEpisodeEvalEngine:
+    env_class: type,
+) -> EvalEngine:
     """Create the execution engine for evaluation.
 
-    Uses MultiEpisodeEvalEngine which extracts metrics from MultiEpisodeEnv
-    via env.get_metrics() after each trajectory, ensuring metrics are captured
-    even for early termination (TRUNCATION, TIMEOUT, MAX_STEPS, etc.).
+    Uses EvalEngine which extracts metrics from environments that implement
+    get_metrics(), ensuring metrics are captured even for early termination
+    (TRUNCATION, TIMEOUT, MAX_STEPS, etc.).
 
     Args:
         args: Parsed command-line arguments.
         max_steps: Maximum steps per trajectory.
         env_args: Environment arguments.
         agent_args: Agent arguments.
+        env_class: Environment wrapper class (multi- or single-episode).
 
     Returns:
-        Configured MultiEpisodeEvalEngine.
+        Configured EvalEngine.
     """
     rollout_engine_args = {
         "model": args.model,
@@ -409,9 +426,9 @@ def create_engine(
             "disable_thinking": False,
         }
     })
-    engine = MultiEpisodeEvalEngine(
+    engine = EvalEngine(
         agent_class=GEMTextAgent,
-        env_class=MultiEpisodeEnv,
+        env_class=env_class,
         config=config,
         agent_args=agent_args,
         env_args=env_args,
@@ -609,14 +626,14 @@ def log_chat_completions(
 
 async def run_evaluation(
     tasks: List[Dict[str, Any]],
-    engine: MultiEpisodeEvalEngine,
+    engine: EvalEngine,
     config: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
     """Run evaluation on all tasks.
 
     Args:
         tasks: List of task dictionaries.
-        engine: Configured MultiEpisodeEvalEngine.
+        engine: Configured EvalEngine.
         config: Raw config dict for env_args construction.
 
     Returns:
@@ -711,6 +728,7 @@ def save_results(
             "success_rate": agg.get("episode/success_rate/mean", 0.0),
             "avg_episodes": agg.get("episode/num_episodes/mean", 0.0),
             "avg_success_count": agg.get("episode/success_count/mean", 0.0),
+            "avg_episode_length": agg.get("episode/episode_length/mean", 0.0),
             **pk,
         }
 
@@ -728,6 +746,7 @@ def save_results(
             "top_p": args.top_p,
             "n_parallel": args.n_parallel,
             "n_rollouts": args.n_rollouts,
+            "env_mode": args.env_mode,
             "config_file": args.config,
             "timestamp": datetime.now().isoformat(),
         },
@@ -787,8 +806,12 @@ def print_summary(
         print(f"\n{data_source}:")
         print(f"  Count: {agg.get('count', 0)}")
         print(f"  Success Rate: {agg.get('episode/success_rate/mean', 0):.2%}")
-        print(f"  Avg Episodes: {agg.get('episode/num_episodes/mean', 0):.2f}")
-        print(f"  Avg Success Count: {agg.get('episode/success_count/mean', 0):.2f}")
+        if "episode/num_episodes/mean" in agg:
+            print(f"  Avg Episodes: {agg.get('episode/num_episodes/mean', 0):.2f}")
+        if "episode/success_count/mean" in agg:
+            print(f"  Avg Success Count: {agg.get('episode/success_count/mean', 0):.2f}")
+        if "episode/episode_length/mean" in agg:
+            print(f"  Avg Episode Length: {agg.get('episode/episode_length/mean', 0):.2f}")
 
         if pk:
             print(f"  Pass@1: {pk.get('pass_at_1', 0):.2%}")
@@ -808,6 +831,7 @@ async def main() -> None:
 
     logger.info(f"Evaluating model: {args.model}")
     logger.info(f"Config file: {args.config}")
+    logger.info(f"Environment mode: {args.env_mode}")
 
     # Load tasks
     tasks, config = load_eval_tasks(
@@ -816,13 +840,22 @@ async def main() -> None:
         n_rollouts=args.n_rollouts,
     )
 
-    # Determine max_steps from config
+    # Determine max_steps from config based on env_mode
     val_tasks = config.get("val_tasks", [])
-    max_total_step_cap = max(
-        (task.get("total_step_cap", 30) for task in val_tasks),
-        default=30,
-    )
-    logger.info(f"Max total step cap: {max_total_step_cap}")
+    if args.env_mode == "single":
+        max_steps = max(
+            (task.get("max_turns_per_episode", 30) for task in val_tasks),
+            default=30,
+        )
+        logger.info(f"Max turns per episode: {max_steps}")
+        env_class = SingleEpisodeEnv
+    else:
+        max_steps = max(
+            (task.get("total_step_cap", 30) for task in val_tasks),
+            default=30,
+        )
+        logger.info(f"Max total step cap: {max_steps}")
+        env_class = MultiEpisodeEnv
 
     # Build env_args from config (base configuration)
     # Per-task configuration (including inner_env_class) comes from task dict via from_dict
@@ -832,14 +865,14 @@ async def main() -> None:
     }
 
     # Build agent_args
-    system_prompt = args.system_prompt or get_default_system_prompt()
+    system_prompt = args.system_prompt or get_default_system_prompt(args.env_mode)
     agent_args: Dict[str, Any] = {
         "system_prompt": system_prompt,
-        "max_steps": max_total_step_cap,
+        "max_steps": max_steps,
     }
 
     # Create engine
-    engine = create_engine(args, max_total_step_cap, env_args, agent_args)
+    engine = create_engine(args, max_steps, env_args, agent_args, env_class)
 
     # Run evaluation
     results = await run_evaluation(tasks, engine, config)
