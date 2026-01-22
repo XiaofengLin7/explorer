@@ -26,7 +26,7 @@ train_tasks:
     min_dom:  0.4
 
   - env_id: "game:Minesweeper-v0-only-reveal"
-    max_turns_per_episode: 10
+    max_turns_per_episode: 8
     train_size: 512
     inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
 
@@ -52,7 +52,7 @@ val_tasks:
     shortest_path_max_length: 8
     shortest_path_min_length: 7
     total_step_cap: 27
-    test_size: 128
+    test_size: 256
     inner_env_class: 'envs.maze_env_adapter.MazeEnvAdapter'
     shapes:  [[6,6],[7,6],[7,7],[6,7]]  
 
@@ -62,5 +62,5 @@ val_tasks:
     code_length: 3
     num_numbers: 6
     duplicate_numbers: False
-    test_size: 128
+    test_size: 256
     inner_env_class: 'envs.gem_env_adapter.GEMEnvAdapter'
