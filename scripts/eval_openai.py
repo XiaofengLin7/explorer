@@ -36,7 +36,77 @@ if str(REPO_ROOT) not in sys.path:
 
 from agents.gem_text_agent import GEMTextAgent  # noqa: E402
 from envs.multi_episode_env import MultiEpisodeEnv  # noqa: E402
-from rllm.engine.agent_execution_engine import AgentExecutionEngine  # noqa: E402
+from trainers.multi_episode_trainer import (  # noqa: E402
+    MultiEpisodeAsyncAgentExecutionEngine,
+)
+
+
+class MultiEpisodeEvalEngine(MultiEpisodeAsyncAgentExecutionEngine):
+    """Execution engine for evaluation using Token mode.
+
+    Extends MultiEpisodeAsyncAgentExecutionEngine to use Token mode by default,
+    which returns dicts with metrics from env.get_metrics().
+    """
+
+    async def execute_tasks(self, tasks: list[dict]) -> list[dict]:
+        """Execute tasks using Token mode to get metrics in results.
+
+        Overrides parent to use mode="Token", which returns dicts containing
+        metrics extracted via env.get_metrics() by the parent class.
+
+        Args:
+            tasks: List of task dictionaries.
+
+        Returns:
+            List of result dicts with metrics, chat_completions, etc.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        import asyncio
+
+        from rllm.agents.agent import BaseAgent
+        from rllm.utils import colorful_print
+
+        if not hasattr(self, "executor") or self.executor._shutdown:
+            self.executor = ThreadPoolExecutor(max_workers=self.max_env_workers)
+
+        max_concurrent = self.n_parallel_agents
+        all_results = {}
+        task_queue = list(enumerate(tasks))
+        semaphore = asyncio.Semaphore(max_concurrent)
+        index_queue: asyncio.Queue[int] = asyncio.Queue(maxsize=max_concurrent)
+        for i in range(max_concurrent):
+            index_queue.put_nowait(i)
+
+        completed = 0
+        total = len(tasks)
+
+        async def sem_wrapper(task_id, task):
+            nonlocal completed
+            async with semaphore:
+                index = await index_queue.get()
+                try:
+                    self.envs[index] = self.env_class.from_dict({**task, **self.env_args})
+                    self.agents[index] = self.agent_class(**self.agent_args)
+                    assert isinstance(self.agents[index], BaseAgent)
+                    self.agents[index].trajectory.task = task
+                    # Use Token mode to get metrics in result dict
+                    res = await self.run_agent_trajectory_async(
+                        index, application_id=str(task_id), mode="Token"
+                    )
+                    res["task"] = task
+                    completed += 1
+                    colorful_print(f"Progress: {completed}/{total} trajectories completed", "cyan")
+                    return task_id, res
+                finally:
+                    await index_queue.put(index)
+
+        results = await asyncio.gather(*[sem_wrapper(tid, t) for tid, t in task_queue])
+        all_results = {task_id: result for task_id, result in results}
+        ordered_results = [all_results[i] for i in range(len(all_results))]
+
+        self.executor.shutdown(wait=False, cancel_futures=True)
+        return ordered_results
+
 
 # Configure logging
 logging.basicConfig(
@@ -306,8 +376,12 @@ def create_engine(
     max_steps: int,
     env_args: Dict[str, Any],
     agent_args: Dict[str, Any],
-) -> AgentExecutionEngine:
-    """Create the AgentExecutionEngine for evaluation.
+) -> MultiEpisodeEvalEngine:
+    """Create the execution engine for evaluation.
+
+    Uses MultiEpisodeEvalEngine which extracts metrics from MultiEpisodeEnv
+    via env.get_metrics() after each trajectory, ensuring metrics are captured
+    even for early termination (TRUNCATION, TIMEOUT, MAX_STEPS, etc.).
 
     Args:
         args: Parsed command-line arguments.
@@ -316,7 +390,7 @@ def create_engine(
         agent_args: Agent arguments.
 
     Returns:
-        Configured AgentExecutionEngine.
+        Configured MultiEpisodeEvalEngine.
     """
     rollout_engine_args = {
         "model": args.model,
@@ -328,7 +402,7 @@ def create_engine(
         },
     }
 
-    engine = AgentExecutionEngine(
+    engine = MultiEpisodeEvalEngine(
         agent_class=GEMTextAgent,
         env_class=MultiEpisodeEnv,
         agent_args=agent_args,
@@ -513,14 +587,14 @@ def log_chat_completions(
 
 async def run_evaluation(
     tasks: List[Dict[str, Any]],
-    engine: AgentExecutionEngine,
+    engine: MultiEpisodeEvalEngine,
     config: Dict[str, Any],
 ) -> List[Dict[str, Any]]:
     """Run evaluation on all tasks.
 
     Args:
         tasks: List of task dictionaries.
-        engine: Configured AgentExecutionEngine.
+        engine: Configured MultiEpisodeEvalEngine.
         config: Raw config dict for env_args construction.
 
     Returns:
@@ -528,32 +602,31 @@ async def run_evaluation(
     """
     logger.info(f"Starting evaluation on {len(tasks)} tasks...")
 
-    # Execute tasks
-    trajectories = await engine.execute_tasks(tasks)
+    # Execute tasks (returns dicts in Token mode)
+    token_results = await engine.execute_tasks(tasks)
 
-    # Collect results
+    # Collect results from Token mode output
     results = []
-    for idx, trajectory in enumerate(trajectories):
-        task = tasks[idx]
+    for idx, token_result in enumerate(token_results):
+        task = token_result.get("task", tasks[idx])
 
-        # Extract metrics from trajectory
-        # The trajectory object has steps with info containing metrics
-        is_correct = False
+        # Extract metrics from Token mode result
+        # Metrics keys are flattened (e.g., "episode_success_rate" instead of "episode/success_rate")
+        raw_metrics = token_result.get("metrics", {})
+
+        # Convert flattened keys back to original format for consistency
         metrics = {}
-        chat_completions = []
+        for key, value in raw_metrics.items():
+            # Convert "episode_success_rate" back to "episode/success_rate"
+            original_key = key.replace("_", "/", 1) if key.startswith("episode") else key
+            metrics[original_key] = value
 
-        if hasattr(trajectory, "steps") and trajectory.steps:
-            last_step = trajectory.steps[-1]
-            if hasattr(last_step, "info"):
-                info = last_step.info
-                metrics = info.get("metrics", {})
-                is_correct = info.get("is_correct", False)
-            if hasattr(last_step, "chat_completions"):
-                chat_completions = last_step.chat_completions
+        # Determine correctness from metrics or trajectory reward
+        trajectory_reward = token_result.get("trajectory_reward", 0.0)
+        is_correct = metrics.get("episode/success_rate", 0.0) > 0 or trajectory_reward > 0
 
-        # Also check trajectory-level attributes
-        if hasattr(trajectory, "reward"):
-            is_correct = is_correct or (trajectory.reward > 0)
+        # Get chat completions
+        chat_completions = token_result.get("chat_completions", [])
 
         result = {
             "uid": task.get("uid", f"task-{idx}"),
@@ -564,7 +637,7 @@ async def run_evaluation(
             "metrics": metrics,
             "is_correct": is_correct,
             "chat_completions": chat_completions,
-            "trajectory_reward": getattr(trajectory, "reward", 0.0),
+            "trajectory_reward": trajectory_reward,
         }
 
         results.append(result)
