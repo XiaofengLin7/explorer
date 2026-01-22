@@ -85,6 +85,26 @@ bash scripts/train_single_task_multi_episode.sh
 +rllm.env.env_args.enable_reflection=True
 ```
 
+## Evaluation (OpenAI)
+Run OpenAI evaluation via the helper script:
+```bash
+# Multi-episode (default)
+bash scripts/run_eval_openai.sh
+
+# Single-episode
+ENV_MODE=single bash scripts/run_eval_openai.sh
+```
+
+Key parameters (via env vars or CLI overrides):
+- `CONFIG`: task config YAML (default: `configs/eval_config.yaml`)
+- `ENV_MODE`: `multi` or `single` (default: `single`)
+- `MODEL`: OpenAI model name (default: `gpt-4o-mini`)
+- `N_PARALLEL`: number of parallel envs (default: `256`)
+- `TEMPERATURE` / `TOP_P`: sampling controls (defaults: `0.6` / `1`)
+- `MAX_RESPONSE_LENGTH`: response length cap (default: `16384`)
+- `TRAJECTORY_TIMEOUT`: per-trajectory timeout seconds (default: `6000`)
+- `N_ROLLOUTS`: rollouts per task for pass@k (default: `1`)
+
 ### Multi-Task Training
 
 The framework supports training on multiple GEM tasks simultaneously, with each task having its own `max_turns_per_episode` and `total_step_cap` configuration. You can also specify different tasks for training and validation.
