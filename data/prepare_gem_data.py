@@ -197,6 +197,8 @@ def prepare_multi_task_gem_data(
 
             # Generate a deterministic seed for this specific task configuration
             task_specific_seed = get_task_specific_seed(task_cfg, seed)
+            if is_train:
+                task_specific_seed = task_specific_seed * 2
             
             # Create a task-specific RNG to ensure deterministic seed generation
             # This ensures identical task configs always generate the same seeds
