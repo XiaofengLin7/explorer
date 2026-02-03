@@ -6,7 +6,7 @@ set -x
 # Override parameters with environment variables or append args: bash scripts/run_eval_openai.sh --temperature 0.5
 
 # Model configuration
-MODEL=${MODEL:-gpt-4o-mini}
+MODEL=${MODEL:-gpt-5.2}
 BASE_URL=${BASE_URL:-https://api.openai.com/v1}
 # API_KEY defaults to OPENAI_API_KEY environment variable
 
@@ -14,7 +14,7 @@ BASE_URL=${BASE_URL:-https://api.openai.com/v1}
 CONFIG=${CONFIG:-configs/eval_config.yaml}
 SEED=${SEED:-42}
 N_ROLLOUTS=${N_ROLLOUTS:-1}
-ENV_MODE=${ENV_MODE:-single}
+ENV_MODE=${ENV_MODE:-multi}
 
 if [ ! -f "$CONFIG" ]; then
     echo "Error: Config file not found: $CONFIG"
@@ -23,12 +23,12 @@ fi
 
 # Execution configuration
 N_PARALLEL=${N_PARALLEL:-256}
-TRAJECTORY_TIMEOUT=${TRAJECTORY_TIMEOUT:-6000}
+TRAJECTORY_TIMEOUT=${TRAJECTORY_TIMEOUT:-1200}
 
 # Sampling parameters
 TEMPERATURE=${TEMPERATURE:-0.6}
-TOP_P=${TOP_P:-1}
-MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-16384}
+TOP_P=${TOP_P:-0.95}
+MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-31744}
 
 # Output configuration
 OUTPUT_DIR=${OUTPUT_DIR:-results}

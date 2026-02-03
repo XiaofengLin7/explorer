@@ -42,6 +42,8 @@ from trainers.multi_episode_trainer import (  # noqa: E402
     MultiEpisodeAsyncAgentExecutionEngine,
 )
 
+from rllm.parser import ChatTemplateParser
+
 
 class EvalEngine(MultiEpisodeAsyncAgentExecutionEngine):
     """Execution engine for evaluation using Token mode.
@@ -378,8 +380,10 @@ def get_default_system_prompt(env_mode: str) -> str:
         "You are solving the same task across multiple episodes with a fixed total step budget. "
         "Each episode resets the environment but keeps the task identical. "
         "Leverage information gathered from earlier episodes to succeed faster. "
+        # "Think step by step and respond with actions inside \\boxed{} each turn."
         "Think briefly and respond with actions inside \\boxed{} each turn. "
         "Overlong responses will be penalized."
+        
     )
 
 
@@ -415,8 +419,9 @@ def create_engine(
             "top_p": args.top_p,
         },
     }
-    # dummy tokenizer for openai engine
-    tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-4B")
+    # dummy tokenizer and parser for openai engine
+    dummy_tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen3-4B")
+    dummy_parser = ChatTemplateParser.get_parser(dummy_tokenizer)
     
     # Create dummy config with OmegaConf for attribute access (required by AgentExecutionEngine)
     from omegaconf import OmegaConf
@@ -434,7 +439,8 @@ def create_engine(
         env_args=env_args,
         engine_name="openai",
         rollout_engine_args=rollout_engine_args,
-        tokenizer=tokenizer,
+        # chat_parser=dummy_parser,
+        tokenizer=dummy_tokenizer,
         n_parallel_agents=args.n_parallel,
         max_steps=max_steps,
         max_response_length=args.max_response_length,
@@ -443,6 +449,8 @@ def create_engine(
         sampling_params={
             "temperature": args.temperature,
             "top_p": args.top_p,
+            "max_completion_tokens": args.max_response_length,
+            "reasoning_effort": "low",
         },
     )
 
@@ -574,16 +582,22 @@ def sanitize_filename(name: str) -> str:
 
 def log_chat_completions(
     trajectory_results: List[Dict[str, Any]],
-    output_dir: Path,
+    output_path: Path,
+    model_name: str,
 ) -> None:
     """Log chat completions to JSONL files organized by data_source.
 
     Args:
         trajectory_results: List of trajectory result dicts.
-        output_dir: Base output directory.
+        output_path: Output results file path (used for consistent timestamp).
     """
-    chat_dir = output_dir / "chat_completions"
+    chat_dir = output_path.parent / "chat_completions"
     chat_dir.mkdir(parents=True, exist_ok=True)
+    stem_parts = output_path.stem.split("_")
+    if len(stem_parts) >= 2 and stem_parts[-2].isdigit() and stem_parts[-1].isdigit():
+        timestamp_suffix = f"{stem_parts[-2]}_{stem_parts[-1]}"
+    else:
+        timestamp_suffix = stem_parts[-1]
 
     # Group by data_source
     source_chats: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
@@ -596,6 +610,8 @@ def log_chat_completions(
             "messages": result.get("chat_completions", []),
             "metrics": result.get("metrics", {}),
             "is_correct": result.get("is_correct", False),
+            "timestamp": datetime.now().isoformat(),
+            "model_name": model_name,
         }
         source_chats[data_source].append(chat_entry)
 
@@ -613,8 +629,9 @@ def log_chat_completions(
             return super().default(obj)
 
     # Write JSONL files
+    model_safe = sanitize_filename(model_name)
     for data_source, chats in source_chats.items():
-        filename = sanitize_filename(data_source) + ".jsonl"
+        filename = f"{sanitize_filename(data_source)}_{model_safe}_{timestamp_suffix}.jsonl"
         filepath = chat_dir / filename
 
         with open(filepath, "w") as f:
@@ -891,7 +908,7 @@ async def main() -> None:
 
     # Log chat completions if enabled
     if args.log_chat_completions:
-        log_chat_completions(results, output_path.parent)
+        log_chat_completions(results, output_path, args.model)
 
     # Print summary
     print_summary(aggregated_metrics, pass_at_k, overall_success_rate)
