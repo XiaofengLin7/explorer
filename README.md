@@ -1,10 +1,10 @@
-# Explorer RL Agent Framework
+# Scaling In-Context Online Learning Capability of LLMs via Cross-Episode Meta-RL
 
-Train a universal agentic LLM with multi-task reinforcement learning that can exploit context for better multi-turn decision-making.
+Large language models excel when all task-relevant information is available upfront, but many real-world decision-making problems are inherently online—requiring interaction, delayed feedback, and exploration over time. While in-context learning enables adaptation without weight updates, existing LLMs often struggle to reliably learn from interaction experience alone.
 
-This repo builds on two upstream projects tracked as git submodules:
-- `rllm`: training framework ([`rllm`](https://github.com/rllm-org/rllm))
-- `GEM`: environment suite ([`GEM`](https://github.com/axon-rl/gem))
+ORBIT is a multi-task, multi-episode meta–reinforcement learning framework that trains LLMs to learn from interaction in context. After meta-training, a relatively small open-source model (Qwen-14B) demonstrates strong in-context online learning on unseen environments, matching GPT-5.2 and substantially outperforming standard RL fine-tuning. Scaling results show consistent gains with model size, highlighting the potential of learn-at-inference-time decision-making agents.
+
+This repository contains the official code, environments, and scripts to reproduce all results in the paper.
 
 ## Contents
 - Installation
@@ -15,13 +15,13 @@ This repo builds on two upstream projects tracked as git submodules:
 - Evaluation (OpenAI)
 - Outputs and metrics
 
-## Installation (conda env: `icx`)
+## Installation (conda env: `orbit`)
 
 ### Create and activate the environment
 
 ```bash
-conda create -n icx python=3.11 -y
-conda activate icx
+conda create -n orbit python=3.11 -y
+conda activate orbit
 pip install uv
 ```
 
@@ -37,35 +37,6 @@ cd ../..
 uv pip install -e third_party/gem
 ```
 
-References: [`rllm`](https://github.com/rllm-org/rllm), [`GEM`](https://github.com/axon-rl/gem).
-
-### Quick installation test
-
-Run inside the activated `icx` environment:
-
-```bash
-python - <<'PY'
-import importlib
-
-for pkg in ("rllm", "gem"):
-    try:
-        importlib.import_module(pkg)
-        print(f"{pkg}: OK")
-    except Exception as exc:
-        print(f"{pkg}: FAILED -> {exc}")
-PY
-```
-
-If both report `OK`, installations are healthy.
-
-## Keeping submodules up to date
-
-Pull this repo and sync submodules:
-
-```bash
-git pull origin main
-git submodule update --init --recursive
-```
 
 ## Training
 
@@ -110,8 +81,8 @@ The framework supports training on multiple GEM tasks simultaneously, with each 
 
 | Mode | Training Script | Training Env | Validation Env | Use Case |
 |------|------------------|--------------|----------------|----------|
-| **Multi-episode** | `scripts/train_multi_task_multi_episode.sh` | `MultiEpisodeEnv` | `MultiEpisodeEnv` | Model gets multiple attempts per task during both training and validation |
-| **Single-episode** | `scripts/train_multi_task_single_episode.sh` | `SingleEpisodeEnv` | `MultiEpisodeEnv` | Model trains on single attempts but validates with multiple attempts |
+| **Multi-episode** | `scripts/train_multi_task_multi_episode.sh` | `MultiEpisodeEnv` | `MultiEpisodeEnv` | Model trains on multi-episode |
+| **Single-episode** | `scripts/train_multi_task_single_episode.sh` | `SingleEpisodeEnv` | `MultiEpisodeEnv` | Model trains on single-episode |
 
 #### Configuration file format
 
